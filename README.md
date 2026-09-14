@@ -1,9 +1,4 @@
 # Intelligent-Incident-Reliability-Operations-Platform
-
-Dưới đây là **full scope mình đề xuất cho một hệ thống theo hướng PagerDuty**, nhưng được thiết kế lại để phù hợp với **đồ án Java Backend nhóm 5 người**: đủ lớn để có chiều sâu system design + distributed systems + AI, nhưng vẫn có thể chia phase và triển khai được.
-
-Mình đã đối chiếu với các capability hiện tại của PagerDuty về incident, alert, event orchestration, escalation, on-call, service directory, automation, stakeholder communication và AI agents. PagerDuty hiện định vị sản phẩm theo chuỗi **detect → triage → diagnose → remediate → learn**, chứ không chỉ là ticket/alert dashboard. ([PagerDuty][1])
-
 ---
 
 # 1. Product vision
