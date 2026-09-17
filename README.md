@@ -1,3113 +1,913 @@
-# Intelligent-Incident-Reliability-Operations-Platform
----
+# NexusOps — Intelligent Incident & Reliability Operations Platform
 
-# 1. Product vision
+## Software Project Plan & Architecture Document
 
-## Tên đề tài
-
-**NexusOps — Intelligent Incident & Reliability Operations Platform**
-
-Định vị:
-
-> A centralized platform for detecting operational events, reducing alert noise, routing incidents to the right responders, coordinating incident response, automating remediation, and using AI to accelerate investigation and post-incident learning.
-
-Nó sẽ là sự kết hợp concept của:
-
-**PagerDuty Core + AIOps + Runbook Automation + AI Agents**
-
-nhưng ở scope đồ án thì **tập trung vào Incident Operations**.
+| | |
+|---|---|
+| **Loại tài liệu** | Software Project Plan & Architecture Document |
+| **Kiến trúc** | Event-driven, modular-monolith-first |
+| **Stack chính** | Java (Spring Boot), Apache **Kafka**, PostgreSQL (+ PGVector), Redis |
+| **Trạng thái** | Draft v1.1 |
+| **Đối tượng đọc** | Đội ngũ kỹ thuật, technical stakeholders, ban giám khảo/reviewer |
 
 ---
 
-# 2. Những gì hệ thống phải giải quyết
+## Mục lục
 
-Một công ty có:
-
-```text
-AWS
-Kubernetes
-Database
-Backend APIs
-Frontend
-Redis
-Kafka
-Payment Service
-Authentication Service
-...
-```
-
-Các hệ thống monitoring gửi hàng nghìn event:
-
-```text
-CPU 95%
-CPU 97%
-CPU 98%
-API latency high
-500 errors increased
-Database connection failed
-Payment service unavailable
-```
-
-Nếu xử lý thủ công:
-
-```text
-Monitoring
-   ↓
-Developer thấy alert
-   ↓
-Tự tìm người phụ trách
-   ↓
-Nhắn Slack
-   ↓
-Không ai trả lời
-   ↓
-Gọi người khác
-   ↓
-Tìm logs
-   ↓
-Tìm deployment gần nhất
-   ↓
-Tìm incident cũ
-   ↓
-Fix
-   ↓
-Viết postmortem
-```
-
-NexusOps biến thành:
-
-```text
-Event
-  ↓
-Event Processing
-  ↓
-Dedup / Suppression / Grouping
-  ↓
-Routing
-  ↓
-Alert
-  ↓
-Incident
-  ↓
-Escalation Policy
-  ↓
-On-call Responder
-  ↓
-AI Triage
-  ↓
-AI Investigation
-  ↓
-Human / Automation
-  ↓
-Resolution
-  ↓
-Post-Incident Review
-  ↓
-Knowledge / Analytics
-```
-
-Đây là lifecycle rất gần với cách PagerDuty tổ chức incident response. Một event hợp lệ có thể tạo alert, nhiều alert có thể gom thành một incident; incident sau đó được assignment qua escalation policy tới responder đang on-call. ([PagerDuty][2])
+1. Tóm tắt Điều hành (Executive Summary)
+2. Kiến trúc Hệ thống (System Architecture)
+3. Các Module & Năng lực Cốt lõi (Core Modules & Capabilities)
+4. Mô hình Use Case (Use Case Model)
+5. Mô hình Dữ liệu — Database Schema
+6. Nguyên tắc Thiết kế API (API Design Guidelines)
+7. Kịch bản Tham chiếu — Vòng đời một Sự cố P1
+8. Lộ trình Triển khai theo Giai đoạn (Phased Implementation Plan)
 
 ---
 
-# 3. Scope tổng thể
+## 1. Tóm tắt Điều hành (Executive Summary)
 
-Mình chia hệ thống thành **15 bounded modules**:
+### 1.1 Tầm nhìn Sản phẩm
 
-| #  | Module                            | Priority            |
-| -- | --------------------------------- | ------------------- |
-| 1  | Identity & Access Management      | Must                |
-| 2  | Organization & Teams              | Must                |
-| 3  | Service Directory                 | Must                |
-| 4  | Integration & Event Ingestion     | Must                |
-| 5  | Alert Management                  | Must                |
-| 6  | Event Orchestration               | Must                |
-| 7  | Incident Management               | Must                |
-| 8  | On-Call Scheduling                | Must                |
-| 9  | Escalation Management             | Must                |
-| 10 | Notification                      | Must                |
-| 11 | Incident Response & Collaboration | Should              |
-| 12 | Automation / Runbooks             | Should              |
-| 13 | Knowledge & Post-Incident Review  | Should              |
-| 14 | AI Agent Platform                 | Core differentiator |
-| 15 | Analytics & Reliability           | Should              |
+**NexusOps** là một nền tảng tập trung, có nhiệm vụ phát hiện các sự kiện vận hành (operational events), giảm nhiễu alert, định tuyến incident đến đúng người xử lý, điều phối quá trình phản ứng sự cố, tự động hoá remediation, và dùng **AI** để tăng tốc quá trình điều tra cũng như học hỏi sau sự cố.
+
+Về mặt khái niệm, NexusOps nằm ở giao điểm của bốn nhóm sản phẩm đã được kiểm chứng — **PagerDuty-style incident core**, **AIOps**, **Runbook Automation**, và **AI Agent platforms** — nhưng scope được thu hẹp có chủ đích quanh một identity duy nhất, nhất quán: **Incident Operations**.
+
+### 1.2 Bài toán Cần giải quyết
+
+Các môi trường production hiện đại (cloud infrastructure, Kubernetes, database, backend API, payment service, authentication service...) liên tục sinh ra một luồng lớn tín hiệu giám sát. Nếu xử lý thủ công, luồng này biến thành một chuỗi thao tác rời rạc, chậm và dễ sai sót: kỹ sư phát hiện alert, tự đi tìm người phụ trách, nhắn tin chờ phản hồi, gọi điện escalate thủ công, tìm logs và deployment gần nhất, xử lý sự cố, và — trong nhiều trường hợp — không bao giờ viết postmortem.
+
+NexusOps thay thế chuỗi thao tác tuỳ tiện đó bằng một **pipeline có cấu trúc, có thể audit**:
+
+```
+Event → Alert → Incident → On-call Routing → Escalation → AI Investigation → Human/Automated Remediation → Resolution → Post-Incident Review → Knowledge
+```
+
+Vòng đời này bám sát cách các nền tảng incident management trưởng thành tổ chức quy trình vận hành: một tín hiệu thô trở thành alert sau khi được platform xử lý, nhiều alert liên quan được gộp vào một incident duy nhất, và incident đó được định tuyến đến đúng on-call responder thông qua escalation policy.
+
+### 1.3 Giá trị Cốt lõi
+
+| Giá trị | Ý nghĩa thực tế |
+|---|---|
+| **Giảm nhiễu (noise reduction)** | Deduplication, grouping và suppression biến hàng nghìn event thô thành một số lượng nhỏ incident thực sự cần xử lý. |
+| **Định tuyến tất định** | Event orchestration rules và escalation policy đảm bảo mọi incident P1 đều tới được một người chịu trách nhiệm trong một khoảng thời gian giới hạn. |
+| **Chẩn đoán nhanh hơn** | AI agent với **tool calling** và **RAG** trên logs, deployment, dependency và các incident cũ giúp đưa ra giả thuyết root-cause chỉ trong vài phút thay vì vài giờ. |
+| **Remediation có kiểm soát** | Automation có thể thực thi runbook, nhưng mọi hành động rủi ro cao đều phải đi qua **human approval gate** — AI đề xuất, con người phê duyệt. |
+| **Tri thức tổ chức** | Mỗi incident khi đóng lại đều tạo ra một Post-Incident Review có cấu trúc, nuôi lại knowledge base phục vụ các lần AI investigation sau này. |
+
+### 1.4 Định vị Sản phẩm & Ranh giới Scope
+
+Identity của NexusOps được giữ hẹp có chủ đích, và không được phép trôi dạt thành một công cụ ticketing/quản lý dự án đa năng. Mọi quyết định về tính năng nên được kiểm tra bằng một câu hỏi duy nhất: *tính năng này có làm chuỗi Event → Alert → Incident → On-call → Escalation → Investigation → Remediation → Postmortem mạnh hơn không?*
+
+Để giữ nguồn lực triển khai tập trung vào identity này, nền tảng chủ động **không** xây dựng riêng một hệ thống observability, một mô hình ML tự huấn luyện, một Kubernetes operator đầy đủ, hay khả năng multi-region high availability. Các công cụ như Prometheus, Grafana, Kubernetes, CI/CD được xem là **external integration**, không phải mục tiêu tự xây (xem mục 8.7 — Các Hạng mục Ngoài phạm vi).
 
 ---
 
-# 4. Module 1 — Identity & Access Management
+## 2. Kiến trúc Hệ thống (System Architecture)
 
-## User
+### 2.1 Phong cách Kiến trúc
 
-Mỗi user:
+NexusOps được xây dựng theo **event-driven architecture**: mọi thay đổi trạng thái được publish thành domain event trên một message bus trung tâm, và các worker độc lập subscribe vào những event liên quan đến trách nhiệm của mình. Cách tiếp cận này tách rời (decouple) ingestion, orchestration, notification, escalation và AI processing, giúp hệ thống hấp thụ các đợt burst traffic từ monitoring mà không làm nghẽn phía producer.
 
-```text
-User
-- id
-- email
-- username
-- passwordHash
-- displayName
-- timezone
-- avatar
-- status
-- createdAt
-- lastLoginAt
+Về mặt triển khai, hệ thống khởi đầu như một **modular monolith** (Spring Boot, một deployable duy nhất, các package tách biệt rõ ràng theo từng bounded module), và chỉ đưa Kafka-based asynchronous processing vào khi vòng đời incident lõi đã ổn định. Việc tách service khỏi monolith chỉ thực hiện khi một module thực sự có scaling/reliability profile khác biệt — không tách theo mặc định.
+
+### 2.2 Sơ đồ Kiến trúc Tổng thể
+
+```mermaid
+flowchart TB
+    subgraph EXT["Monitoring & External Systems"]
+        MON["Monitoring Tools<br/>Prometheus / Grafana / CloudWatch"]
+        CI["CI/CD & Kubernetes"]
+    end
+
+    MON --> ING["Event Ingestion<br/>REST / Webhook API"]
+    CI --> ING
+
+    ING --> ORC["Event Orchestration<br/>Rule Engine"]
+
+    ORC -->|"suppress"| SUP["Suppressed<br/>(maintenance / staging)"]
+    ORC -->|"route"| DEDUP["Dedup & Grouping Engine"]
+
+    DEDUP --> INCMGR["Incident Management"]
+    INCMGR --> BUS[["Kafka Event Bus"]]
+
+    BUS --> NOTIFY["Notification Worker"]
+    BUS --> ESCALATE["Escalation Worker"]
+    BUS --> AI["AI Agent Worker"]
+    BUS --> AUDIT["Audit Worker"]
+
+    REDIS[("Redis<br/>Locks / Scheduler / Dedup Cache")]
+    ESCALATE <-->|"timeout scheduling<br/>distributed lock"| REDIS
+
+    AI --> INVEST["AI Investigation<br/>& Recommendation"]
+    INVEST -->|"high-risk action"| APPROVAL["Human Approval Gate"]
+    APPROVAL --> AUTOMATION["Automation Worker<br/>Runbook Execution"]
+
+    NOTIFY --> RESPONDER["On-call Responder"]
+    ESCALATE --> RESPONDER
+    AUTOMATION --> RESOLVE["Incident Resolution"]
+    RESPONDER --> RESOLVE
+
+    RESOLVE --> PIR["Post-Incident Review"]
+    PIR --> KNOW[("Knowledge Base")]
+    KNOW -.->|"retrieval context"| INVEST
 ```
 
-## Authentication
+### 2.3 Luồng Dữ liệu Cốt lõi
 
-```text
-POST /auth/register
-POST /auth/login
-POST /auth/refresh
-POST /auth/logout
-GET  /users/me
-```
+Một tín hiệu thô không bao giờ được xử lý trực tiếp như một incident. Nó đi qua ba trạng thái riêng biệt — **Event → Alert → Incident** — mỗi trạng thái mang một ý nghĩa chặt hơn: *Event* là tín hiệu chưa qua xử lý (`CPU = 99%`), *Alert* là tín hiệu đó sau khi platform xử lý (`CPU High on payment-service`), còn *Incident* là đơn vị công việc mà responder thực sự phải xử lý (`Payment Service Production Outage`). Nhiều alert có thể được deduplicate hoặc group vào một incident duy nhất — đây chính là cơ chế giúp responder không bị page 4 lần cho cùng một nguyên nhân gốc.
 
-JWT:
+### 2.4 Messaging Backbone — Kafka
 
-```text
-Access Token
-Refresh Token
-```
+Kafka là system of record cho việc phối hợp giữa các module. Các domain event chính được publish lên bus:
 
-Spring Security.
+| Nhóm | Domain events |
+|---|---|
+| Ingestion & Alerting | `EventReceived`, `AlertCreated`, `AlertDeduplicated`, `AlertGrouped` |
+| Vòng đời Incident | `IncidentCreated`, `IncidentAcknowledged`, `IncidentEscalated`, `IncidentResolved` |
+| Điều phối phản ứng | `ResponderAdded`, `NotificationRequested`, `NotificationSent` |
+| AI processing | `AIInvestigationStarted`, `AIInvestigationCompleted` |
+| Automation | `AutomationRequested`, `AutomationApproved`, `AutomationExecuted` |
+| Governance | `PIRCreated` |
+
+### 2.5 Distributed State — Redis
+
+Redis phục vụ mọi loại trạng thái cần được chia sẻ, truy xuất nhanh và tồn tại ngắn hạn giữa các worker instance chạy song song:
+
+| Use case | Mục đích |
+|---|---|
+| Rate limiting | Bộ đếm token-bucket theo từng integration/service |
+| Idempotency cache | Lưu kết quả của một `Idempotency-Key` đã xử lý trước đó |
+| Dedup keys | Tra cứu nhanh `dedup:<key>` để xác định event có map vào alert đã tồn tại hay không |
+| Distributed locks | Ngăn hai worker cùng thao tác trên một incident đồng thời |
+| On-call cache | Tra cứu responder hiện tại mà không cần gọi lại schedule engine mỗi lần page |
+| Escalation scheduler | Theo dõi các escalation timeout đang chờ mà không giữ một HTTP connection mở |
+| AI session state | Context ngắn hạn cho một phiên investigation của agent đang chạy |
+
+### 2.6 Các Pattern Reliability trong Hệ thống Phân tán
+
+Bốn pattern dưới đây được xem là yêu cầu kiến trúc bắt buộc, không phải phần "hardening thêm nếu còn thời gian":
+
+**Idempotency.** Hệ thống monitoring thường xuyên gửi lại cùng một event (do retry mạng, at-least-once delivery). Mọi lời gọi `POST /api/v1/events` đều chấp nhận header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain); nếu cùng một key được gửi lại, platform trả về kết quả đã tính trước đó thay vì tạo alert thứ hai. Điều này đảm bảo `1 event → 1 effect`.
+
+**Distributed Locking (Redis).** Vì escalation timeout và AI worker chạy dưới dạng các consumer độc lập, scale ngang, hai worker có thể xảy ra race condition khi cùng escalate hoặc acknowledge một incident (`INC-123`) tại cùng thời điểm. Một distributed lock dựa trên Redis (hoặc optimistic locking bằng cột `version` trên bảng incident) đảm bảo chỉ một worker được thay đổi trạng thái escalation của một incident tại một thời điểm.
+
+**Retry & Dead Letter Queue (Kafka).** Việc gửi tới một kênh bên ngoài (email, SMS, chat) có thể thất bại tạm thời. Notification thất bại được retry qua topic `notification.retry` với cơ chế backoff; sau khi hết retry budget, message được chuyển sang `notification.dlq` để kiểm tra thủ công thay vì bị âm thầm loại bỏ.
+
+**Rate Limiting.** Một integration hoạt động sai (gửi hàng nghìn event/giây) không được phép làm suy giảm hiệu năng toàn hệ thống. Một Redis token-bucket limiter áp mức trần theo từng integration/service (ví dụ 100 request/giây) ngay tại biên ingestion.
+
+> **Ghi chú thiết kế — không có mâu thuẫn giữa Escalation, AI và Human Approval.** Escalation chỉ có một mục tiêu duy nhất: *đưa được một con người vào xử lý* trong một khoảng thời gian giới hạn (chuỗi paging, độc lập với AI). AI Triage và AI Investigation chạy **song song** với escalation, không thay thế escalation — chúng tăng tốc chẩn đoán trong khi đồng hồ timeout của paging vẫn chạy độc lập. **Human Approval Gate** chỉ áp dụng cho các *hành động remediation* do AI đề xuất và được phân loại rủi ro cao; nó không thay thế cho escalation, và không tạm dừng hay chặn escalation timer. Người phê duyệt là responder đang được assign hoặc Incident Commander, được xác định qua cùng một permission RBAC (`AUTOMATION_EXECUTE`) dùng xuyên suốt nền tảng.
 
 ---
 
-# 5. RBAC
+## 3. Các Module & Năng lực Cốt lõi (Core Modules & Capabilities)
 
-Không chỉ có:
+Phạm vi chức năng của nền tảng được tổ chức thành **15 bounded module**, được nhóm lại dưới đây thành năm nhóm năng lực mạch lạc.
 
-```text
-ADMIN
-USER
-```
+### 3.1 Identity, Access & Organization
 
-Mà:
+Bao gồm authentication, authorization, và cấu trúc tổ chức mà mọi module khác đều dựa vào.
 
-```text
-ACCOUNT_ADMIN
-TEAM_MANAGER
-TEAM_MEMBER
-RESPONDER
-STAKEHOLDER
-VIEWER
-```
+- **Authentication.** Đăng ký/đăng nhập bằng email-password, xử lý qua Spring Security, phát hành **access token** ngắn hạn và **refresh token** dài hạn (`POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`).
+- **Role-Based Access Control.** Authorization không chỉ dừng ở `ADMIN`/`USER` phẳng. Role được phân theo hệ thống phân cấp `User → Organization → Team → Role → Permission`:
 
-Có thể thiết kế:
+  | Role | Phạm vi điển hình |
+  |---|---|
+  | `ACCOUNT_ADMIN` | Toàn quyền trên organization |
+  | `TEAM_MANAGER` | Quản lý service, schedule, escalation policy của team |
+  | `TEAM_MEMBER` | Thành viên kỹ thuật tiêu chuẩn |
+  | `RESPONDER` | Có thể được page và xử lý incident |
+  | `STAKEHOLDER` | Chỉ xem, có thể subscribe status update |
+  | `VIEWER` | Chỉ xem |
 
-```text
-User
- ↓
-Organization
- ↓
-Team
- ↓
-Role
- ↓
-Permission
-```
+  Các permission chi tiết (`INCIDENT_ACK`, `INCIDENT_RESOLVE`, `ESCALATION_MANAGE`, `AI_RUN`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) được gắn vào role thay vì hard-code, tương tự cách các nền tảng incident management trưởng thành tách quyền theo account/team/object.
 
-Ví dụ:
+- **Organization & Teams.** Một organization chứa nhiều team (ví dụ: Backend, Frontend, DevOps, Security, Data), mỗi team có membership và invitation riêng, tạo thành ranh giới sở hữu mà Service Directory và Escalation Policy dựa vào.
 
-```text
-INCIDENT_VIEW
-INCIDENT_CREATE
-INCIDENT_ACK
-INCIDENT_RESOLVE
-INCIDENT_REASSIGN
-SERVICE_MANAGE
-SCHEDULE_MANAGE
-ESCALATION_MANAGE
-WORKFLOW_MANAGE
-AI_RUN
-AUTOMATION_EXECUTE
-AUDIT_VIEW
-```
+### 3.2 Service Directory & Integration Layer
 
-PagerDuty cũng phân quyền khá sâu theo account/team/object thay vì chỉ authentication đơn giản. ([PagerDuty][3])
+Điểm vào nơi tín hiệu bên ngoài trở thành dữ liệu native của platform.
 
----
+- **Service Directory.** Service là đơn vị chức năng mà một incident thực sự *nói về* — thuộc sở hữu một team, gắn nhãn mức độ nghiêm trọng (`OPERATIONAL`, `DEGRADED`, `MAJOR_INCIDENT`, `MAINTENANCE`, `DISABLED`), và liên kết tới repository, runbook, escalation policy tương ứng.
+- **Service Dependency Graph.** Các service khai báo dependency lẫn nhau và với hạ tầng (ví dụ `Checkout → Payment → PostgreSQL → AWS RDS`). Graph này là thứ cho phép AI Investigation Agent suy luận về blast radius — nếu PostgreSQL down, mọi service phụ thuộc đều là ứng viên cho root-cause path, không phải trùng hợp ngẫu nhiên.
+- **Integration & Event Ingestion.** Các hệ thống bên ngoài (Prometheus, Grafana, CloudWatch, GitHub Actions, Kubernetes, custom application) gửi tín hiệu machine-generated qua một **Events API** riêng (`POST /api/v1/events`), xác thực bằng API key theo từng integration thay vì user session. Đây là sự tách biệt có chủ đích khỏi **REST API** hướng resource dùng cho cấu hình, phản ánh đúng quy ước ngành: tách "ingest ở quy mô lớn" khỏi "quản lý cấu hình".
 
-# 6. Module 2 — Organization & Team
+### 3.3 Incident Response Pipeline
 
-Một organization có nhiều team:
+Phần lõi vận hành: biến noise thành một incident đã được định tuyến, có thể hành động, và được phối hợp xử lý.
 
-```text
-Organization
- ├── Backend Team
- ├── Frontend Team
- ├── DevOps Team
- ├── Security Team
- └── Data Team
-```
+- **Alert Management.** Bao gồm **deduplication** (các tín hiệu lặp lại cùng `dedupKey` gộp vào một alert), **grouping** (rule engine hoặc AI heuristic gom các alert liên quan nhưng khác nhau — ví dụ lỗi database, API latency cao, payment timeout — vào cùng một incident), và **suppression** (alert phát sinh trong lúc deploy hoặc trong maintenance window vẫn được lưu lại phục vụ forensic nhưng không tạo incident hay notification).
+- **Event Orchestration / Rule Engine.** Một engine `IF condition THEN action` có thể cấu hình, đánh giá trên mỗi event đầu vào. Condition kết hợp các field (`service`, `severity`, `environment`, `event.count`) với operator (`EQUALS`, `CONTAINS`, `GREATER_THAN`, `IN`,...); action gồm `ROUTE`, `SUPPRESS`, `SET_PRIORITY`, `CREATE_INCIDENT`, `TRIGGER_WORKFLOW`. Đây là cơ chế chính chuyển noise từ monitoring thành quyết định định tuyến nhất quán, có thể audit.
+- **Incident Management.** Bản ghi Incident (`TRIGGERED → ACKNOWLEDGED → RESOLVED`) theo dõi assignee, priority, severity, và toàn bộ timeline dạng `IncidentEvent`. Acknowledge một incident sẽ dừng escalation nhưng không đóng incident — resolve là một hành động riêng, tường minh.
+- **On-Call Scheduling.** Schedule hỗ trợ các loại rotation (`DAILY`, `WEEKLY`, `CUSTOM`), nhiều layer coverage (Primary/Secondary), và override có giới hạn thời gian cho các trường hợp vắng mặt đã lên kế hoạch — được resolve tại thời điểm truy vấn qua `GET /schedules/{id}/on-call`.
+- **Escalation Management.** Một `EscalationPolicy` là một danh sách level có thứ tự, mỗi level có target responder (user, schedule, hoặc team) và một timeout. Nếu một level không acknowledge trong thời gian timeout, incident tự động escalate sang level tiếp theo. Vì giữ một HTTP request mở trong 10 phút là không khả thi, việc theo dõi thời gian escalation được triển khai bằng **Kafka event + scheduled job trên Redis**, không phải chờ đồng bộ (xem §2.6).
+- **Notification.** Gửi đa kênh (email, in-app, WebSocket cho MVP; Slack/Telegram/Discord/SMS cho các tier nâng cao), được điều khiển bởi `NotificationRule` theo từng user (ví dụ: *P1 → email ngay lập tức, +1 phút Telegram, +3 phút SMS*). Việc gửi luôn bất đồng bộ — request tạo incident chỉ publish lên Kafka; một Notification Consumer riêng thực hiện việc gửi thực sự, kèm retry/DLQ như mô tả ở §2.6.
+- **Incident Response & Collaboration.** Với các incident lớn, NexusOps hỗ trợ các role tường minh (Incident Commander, Technical Lead, Communications Lead, Scribe, Responder), một **Incident War Room** thời gian thực (chat, timeline, AI panel, service graph chạy trên WebSocket/SSE), và các status update hướng tới stakeholder mà họ có thể subscribe độc lập với nhóm responder.
 
-Entity:
+### 3.4 Automation & AI Operations
 
-```text
-Organization
-Team
-TeamMember
-Role
-Invitation
-```
+Điểm khác biệt cốt lõi của nền tảng: AI agent vận hành có quyền dùng tool, được kiểm soát bởi con người.
 
-API:
+- **Automation / Runbooks.** Một `Runbook` là một hành động vận hành có tên, có version (restart service, clear cache, scale deployment, rollback), được gắn nhãn `riskLevel` và cờ `requiresApproval`. Runbook có thể được kích hoạt thủ công, từ rule của event orchestration, hoặc từ đề xuất của AI.
+- **Human Approval Gate.** Không một hành động nào do AI khởi xướng và có ảnh hưởng tới production được thực thi mà không có sự cho phép tường minh. Mọi request automation đều mang một phân loại rủi ro; các hành động `HIGH`-risk (ví dụ rollback) bị chặn lại chờ human approval, trong khi các hành động `LOW`-risk, đã được hiểu rõ có thể được pre-authorize theo chính sách runbook.
+- **Knowledge Base & RAG.** Runbook, tài liệu kiến trúc, hướng dẫn troubleshooting, và các incident cũ được chunk, embed và lưu trong **PGVector**, cho phép retrieval-augmented generation: một truy vấn investigation sẽ kéo về các tài liệu và incident lịch sử liên quan nhất làm context nền trước khi LLM suy luận.
+- **AI Agent Platform.** Thay vì một chat assistant đa năng duy nhất, NexusOps triển khai một tập hợp **agent chuyên biệt**, mỗi agent gắn với một giai đoạn của vòng đời incident và được trang bị **tool calling** trên dữ liệu của chính platform (`getIncident`, `getAlerts`, `getDependencies`, `getRecentDeployments`, `getLogs`, `getMetrics`, `searchKnowledge`, `searchPastIncidents`, `runDiagnostic`,...), để LLM tự quyết định cần gọi tool nào thay vì phụ thuộc vào một prompt cố định duy nhất.
 
-```text
-POST   /organizations
-GET    /organizations/{id}
+  | Agent | Trách nhiệm | Có tự thực thi hành động? |
+  |---|---|---|
+  | Triage Agent | Phân loại mức độ nghiêm trọng, kiểm tra trùng lặp/alert liên quan, xác định service bị ảnh hưởng | Không |
+  | Investigation Agent | Thu thập logs, metrics, deployment, dependency và các incident tương tự trong quá khứ; đưa ra giả thuyết root-cause kèm độ tin cậy và bằng chứng | Không |
+  | Remediation Agent | Đề xuất một hành động remediation cụ thể kèm mức độ rủi ro | Không — bắt buộc qua Human Approval Gate |
+  | Postmortem / Scribe Agent | Tổng hợp timeline, notes, chat và kết quả investigation thành bản nháp Post-Incident Review có cấu trúc | Không |
+  | Knowledge Agent | Trả lời câu hỏi "làm sao để khôi phục X?" bằng RAG trên runbook và incident cũ | Không |
+  | On-call Assistant | Trả lời câu hỏi "ai đang on-call cho X?" bằng cách resolve service → escalation policy → schedule đang active | Không |
 
-POST   /teams
-GET    /teams
-POST   /teams/{id}/members
-DELETE /teams/{id}/members/{userId}
-```
+  Chỉ **Automation Worker** — hoạt động sau khi đã có human approval tường minh — mới được phép thực thi một hành động làm thay đổi trạng thái hệ thống production.
+
+### 3.5 Reliability Engineering & Governance
+
+Khép lại vòng lặp từ resolution đến việc học hỏi của tổ chức, đồng thời cung cấp tầng quan sát vận hành cho cả kỹ sư lẫn stakeholder.
+
+- **Post-Incident Review.** Mỗi incident đã resolve tạo ra một `PostIncidentReview` (summary, root cause, impact, timeline, các yếu tố góp phần, và action item được phân loại — `BUG_FIX`, `INFRASTRUCTURE`, `MONITORING`, `PROCESS`, `DOCUMENTATION`, `SECURITY`), đi qua các trạng thái `DRAFT → IN_REVIEW → APPROVED → COMPLETED`.
+- **Analytics & Reliability Metrics.** Các KPI reliability tiêu chuẩn được tính trực tiếp từ timestamp của incident: **MTTA** (`acknowledgedAt − triggeredAt`), **MTTR** (`resolvedAt − triggeredAt`), **MTTD** (`detectedAt − actualFailureAt`), và tỷ lệ escalation. Alert-noise analytics theo dõi toàn bộ funnel event → alert → incident (ví dụ 100.000 event → 15.000 alert → 9.000 deduplicated → 800 incident) để định lượng hiệu quả giảm nhiễu của pipeline.
+- **SLA / SLO.** Service có thể khai báo SLO (ví dụ 99.9% availability) kèm error budget tương ứng; incident được quy về mức tiêu hao error budget của service liên quan.
+- **Status Page.** Một trang public hoặc giới hạn theo đối tượng, phản ánh trạng thái vận hành theo từng service, được cập nhật tự động từ trạng thái incident (có human approval cho các nội dung hướng tới công chúng khi cần).
+- **Maintenance Window.** Một rule suppression có giới hạn thời gian cho một service cụ thể — các event khớp trong khoảng thời gian này được ghi nhận nhưng không bao giờ escalate thành incident.
+- **Audit Log.** Mọi hành động có quyền hạn cao (ai, làm gì, khi nào, trên đối tượng nào, giá trị cũ → giá trị mới) đều được ghi lại bất biến — một yêu cầu nền tảng cho bất kỳ hệ thống nào quản lý quyền truy cập production và remediation tự động.
 
 ---
 
-# 7. Module 3 — Service Directory
+## 4. Mô hình Use Case (Use Case Model)
 
-Đây là một trong những module **quan trọng nhất**.
+Mục này đặc tả đầy đủ các **tác nhân (actor)** và **use case** của NexusOps, tổ chức theo cùng năm nhóm năng lực đã trình bày ở Mục 3, để mỗi use case có thể truy vết trực tiếp về module tương ứng.
 
-PagerDuty xem technical service là một thành phần chức năng được một team sở hữu, có owner, integration, incident state và on-call context. ([PagerDuty][4])
+### 4.1 Danh sách Tác nhân (Actors)
 
-Ví dụ:
+| Tác nhân | Loại | Mô tả |
+|---|---|---|
+| **Monitoring System** | External system | Hệ thống giám sát bên ngoài (Prometheus, Grafana, CloudWatch, CI/CD, Kubernetes) gửi event vào NexusOps qua Events API. |
+| **Account Admin** | Con người | Toàn quyền trên organization: quản lý user, role/permission, audit log. |
+| **Team Manager** | Con người | Quản lý service, schedule, escalation policy, integration trong phạm vi team mình sở hữu. |
+| **On-call Responder** | Con người | Được page khi có incident; thực hiện acknowledge, resolve, escalate, phê duyệt remediation. |
+| **Incident Commander** | Con người | Vai trò được một Responder đảm nhận khi điều phối một major incident (P1/P2); phê duyệt automation, đăng status update, duyệt PIR. |
+| **Stakeholder** | Con người | Theo dõi trạng thái incident/service qua subscription và dashboard; không thao tác trực tiếp trên incident. |
+| **AI Agent** | Hệ thống (tác nhân tự động) | Thực hiện triage, investigation, truy vấn knowledge base, và soạn thảo postmortem; không tự thực thi hành động thay đổi hệ thống. |
+| **Automation Worker** | Hệ thống (tác nhân tự động) | Thực thi runbook/remediation sau khi đã có human approval (đối với hành động rủi ro cao). |
 
-```text
-Payment Service
- ├── Owner: Payment Team
- ├── Tier: Critical
- ├── Environment: Production
- ├── Repository: github.com/company/payment
- ├── Runbook URL
- ├── Escalation Policy
- ├── Integrations
- └── Dependencies
+### 4.2 Use Case: Identity, Access & Organization
+
+```mermaid
+flowchart LR
+    AllUsers[Mọi User]
+    AccountAdmin[Account Admin]
+    TeamManager[Team Manager]
+
+    AllUsers --> UC01([UC-01 Đăng ký / Đăng nhập])
+    AccountAdmin --> UC02([UC-02 Quản lý Role & Permission])
+    AccountAdmin --> UC03([UC-03 Quản lý Organization & Team])
+    TeamManager --> UC03
 ```
 
-## Service fields
+**UC-01 — Đăng ký & Đăng nhập**
+- **Tác nhân:** Mọi user (Account Admin, Team Manager, Responder, Stakeholder)
+- **Mô tả:** Người dùng tạo tài khoản hoặc đăng nhập để nhận access token/refresh token.
+- **Điều kiện tiên quyết:** Có email hợp lệ (đăng ký) hoặc tài khoản đã tồn tại (đăng nhập).
+- **Luồng sự kiện chính:**
+  1. Người dùng gửi `POST /auth/register` hoặc `/auth/login` kèm email/password.
+  2. Hệ thống xác thực thông tin qua Spring Security.
+  3. Hệ thống phát hành access token và refresh token.
+  4. Người dùng dùng access token cho các request tiếp theo.
+- **Luồng ngoại lệ:** Sai email/password → lỗi 401; email đã tồn tại khi đăng ký → lỗi 409.
+- **Điều kiện sau:** Người dùng có một phiên đăng nhập hợp lệ.
 
-```text
-id
-name
-description
-teamId
-criticality
-environment
-status
-repositoryUrl
-runbookUrl
-escalationPolicyId
+**UC-02 — Quản lý Role & Permission**
+- **Tác nhân:** Account Admin
+- **Mô tả:** Gán role và permission chi tiết cho user trong phạm vi organization/team.
+- **Điều kiện tiên quyết:** Actor có quyền `ACCOUNT_ADMIN`.
+- **Luồng sự kiện chính:**
+  1. Admin chọn user cần cấp quyền.
+  2. Admin gán role (`RESPONDER`, `TEAM_MANAGER`,...) hoặc permission cụ thể (`AUTOMATION_EXECUTE`,...).
+  3. Hệ thống ghi nhận thay đổi và tạo bản ghi `AuditLog`.
+- **Luồng ngoại lệ:** Actor không đủ quyền → hệ thống từ chối (403).
+- **Điều kiện sau:** User có quyền hạn mới; thay đổi được ghi vào audit log.
+
+**UC-03 — Quản lý Organization & Team**
+- **Tác nhân:** Account Admin, Team Manager
+- **Mô tả:** Tạo/chỉnh sửa organization, team, và quản lý thành viên team.
+- **Điều kiện tiên quyết:** Actor có quyền `ACCOUNT_ADMIN` (tạo organization) hoặc `TEAM_MANAGER` (quản lý team của mình).
+- **Luồng sự kiện chính:**
+  1. Actor tạo/cập nhật organization hoặc team qua `POST /organizations`, `POST /teams`.
+  2. Actor thêm/xoá thành viên qua `POST`/`DELETE /teams/{id}/members`.
+  3. Hệ thống cập nhật cấu trúc sở hữu, ảnh hưởng tới Service Directory và Escalation Policy liên quan.
+- **Điều kiện sau:** Cấu trúc organization/team được cập nhật.
+
+### 4.3 Use Case: Service Directory & Integration Layer
+
+```mermaid
+flowchart LR
+    TeamManager[Team Manager]
+    MonitoringSystem[Monitoring System]
+
+    TeamManager --> UC04([UC-04 Quản lý Service Directory])
+    TeamManager --> UC05([UC-05 Định nghĩa Service Dependency])
+    TeamManager --> UC06([UC-06 Cấu hình Integration & API Key])
+    MonitoringSystem --> UC07([UC-07 Ingest Monitoring Event])
+    UC06 -.->|"cấp API key cho"| UC07
 ```
 
-Status:
+**UC-04 — Quản lý Service Directory**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Tạo, cập nhật thông tin service (criticality, environment, runbook URL, escalation policy liên kết).
+- **Điều kiện tiên quyết:** Actor có quyền `SERVICE_MANAGE` trên team sở hữu.
+- **Luồng sự kiện chính:**
+  1. Team Manager tạo service qua `POST /services` với các trường name, criticality, escalationPolicyId.
+  2. Hệ thống lưu bản ghi Service với status mặc định `OPERATIONAL`.
+  3. Team Manager cập nhật qua `PATCH /services/{id}` khi cần.
+- **Điều kiện sau:** Service tồn tại trong Service Directory, sẵn sàng nhận integration/event.
 
-```text
-OPERATIONAL
-DEGRADED
-MAJOR_INCIDENT
-MAINTENANCE
-DISABLED
+**UC-05 — Định nghĩa Service Dependency**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Khai báo quan hệ phụ thuộc giữa các service (và với hạ tầng) để phục vụ blast-radius reasoning của AI.
+- **Điều kiện tiên quyết:** Cả hai service liên quan đã tồn tại trong Service Directory.
+- **Luồng sự kiện chính:**
+  1. Team Manager chọn service nguồn và service/hạ tầng đích.
+  2. Hệ thống lưu bản ghi `service_dependencies`.
+  3. Dependency graph được cập nhật, sẵn sàng cho AI Investigation Agent truy vấn.
+- **Điều kiện sau:** Dependency graph phản ánh đúng quan hệ mới.
+
+**UC-06 — Cấu hình Integration & API Key**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Kết nối một service với một nguồn monitoring bên ngoài, sinh integration key.
+- **Điều kiện tiên quyết:** Service đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Team Manager tạo integration cho service, chọn provider (Prometheus, GitHub Actions,...).
+  2. Hệ thống sinh một API key riêng cho integration.
+  3. Team Manager cấu hình API key này trên hệ thống monitoring bên ngoài.
+- **Điều kiện sau:** Integration ở trạng thái active, sẵn sàng nhận event.
+
+**UC-07 — Ingest Monitoring Event**
+- **Tác nhân:** Monitoring System
+- **Mô tả:** Hệ thống giám sát bên ngoài gửi tín hiệu thô vào NexusOps.
+- **Điều kiện tiên quyết:** Integration key hợp lệ đã được cấu hình (UC-06).
+- **Luồng sự kiện chính:**
+  1. Monitoring System gửi `POST /api/v1/events` kèm `Idempotency-Key`/`dedupKey`.
+  2. Hệ thống xác thực integration key, áp rate limit theo Redis token-bucket.
+  3. Event được publish `EventReceived` lên Kafka.
+- **Luồng ngoại lệ:** Key trùng đã xử lý trước đó → trả kết quả cũ (idempotent); vượt rate limit → trả 429.
+- **Điều kiện sau:** Event tồn tại trong hệ thống, sẵn sàng cho Event Orchestration xử lý.
+
+### 4.4 Use Case: Incident Response Pipeline
+
+```mermaid
+flowchart LR
+    TeamManager[Team Manager]
+    Responder[On-call Responder]
+    Commander[Incident Commander]
+    Stakeholder[Stakeholder]
+    SystemWorker[[System - Automated Worker]]
+
+    TeamManager --> UC08([UC-08 Cấu hình Orchestration Rule])
+    SystemWorker --> UC09([UC-09 Deduplicate & Group Alerts])
+    SystemWorker --> UC10([UC-10 Tạo Incident])
+    Responder --> UC11([UC-11 Acknowledge Incident])
+    SystemWorker --> UC12([UC-12 Escalate Incident])
+    Responder --> UC12
+    TeamManager --> UC13([UC-13 Quản lý Schedule])
+    Responder --> UC14([UC-14 Override Schedule])
+    TeamManager --> UC15([UC-15 Cấu hình Escalation Policy])
+    Responder --> UC16([UC-16 Nhận Notification])
+    Stakeholder --> UC16
+    Responder --> UC17([UC-17 Collaborate War Room])
+    Commander --> UC17
+    Commander --> UC18([UC-18 Đăng Status Update])
+    Responder --> UC19([UC-19 Resolve Incident])
+```
+
+**UC-08 — Cấu hình Event Orchestration Rule**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Định nghĩa rule `IF condition THEN action` cho việc routing/suppress/set priority.
+- **Điều kiện tiên quyết:** Actor có quyền cấu hình trên service/organization liên quan.
+- **Luồng sự kiện chính:**
+  1. Team Manager định nghĩa condition (field, operator, value) và action tương ứng.
+  2. Hệ thống lưu rule, sắp xếp theo priority.
+  3. Rule được áp dụng cho mọi event tiếp theo khớp điều kiện.
+- **Điều kiện sau:** Rule mới có hiệu lực trong Event Orchestration Engine.
+
+**UC-09 — Deduplicate & Group Alerts** *(use case hệ thống, tự động)*
+- **Tác nhân:** System (Dedup & Grouping Engine), kích hoạt từ UC-07
+- **Mô tả:** Gộp các event/alert trùng lặp hoặc liên quan thành một alert/nhóm.
+- **Điều kiện tiên quyết:** Event đã qua Event Orchestration và không bị suppress.
+- **Luồng sự kiện chính:**
+  1. Engine kiểm tra `dedupKey` trong Redis cache.
+  2. Nếu đã tồn tại → gộp vào alert hiện có, publish `AlertDeduplicated`.
+  3. Nếu chưa tồn tại → tạo alert mới, publish `AlertCreated`.
+  4. Nếu alert liên quan tới các alert khác cùng thời điểm → gộp nhóm, publish `AlertGrouped`.
+- **Điều kiện sau:** Alert (mới hoặc đã gộp) sẵn sàng cho Incident Management xử lý.
+
+**UC-10 — Tạo Incident** *(use case hệ thống, tự động)*
+- **Tác nhân:** System (Incident Management), kích hoạt từ UC-09
+- **Mô tả:** Chuyển một alert (hoặc nhóm alert) đủ điều kiện thành một Incident chính thức.
+- **Điều kiện tiên quyết:** Alert có severity/priority đạt ngưỡng tạo incident (theo rule orchestration).
+- **Luồng sự kiện chính:**
+  1. Hệ thống tạo bản ghi Incident (`TRIGGERED`), gán `incidentNumber`, liên kết các alert liên quan.
+  2. Hệ thống publish `IncidentCreated` lên Kafka.
+  3. Escalation Worker và AI Agent Worker đồng thời subscribe sự kiện này (xem UC-12, UC-23).
+- **Điều kiện sau:** Incident tồn tại ở trạng thái `TRIGGERED`; escalation và AI investigation bắt đầu song song.
+
+**UC-11 — Acknowledge Incident**
+- **Tác nhân:** On-call Responder
+- **Mô tả:** Responder xác nhận đã tiếp nhận và đang xử lý incident.
+- **Điều kiện tiên quyết:** Incident đang ở trạng thái `TRIGGERED`; responder là người được page hoặc có quyền `INCIDENT_ACK`.
+- **Luồng sự kiện chính:**
+  1. Responder gọi `POST /incidents/{id}/acknowledge`.
+  2. Hệ thống chuyển trạng thái sang `ACKNOWLEDGED`, publish `IncidentAcknowledged`.
+  3. Escalation timer cho incident này dừng lại.
+- **Điều kiện sau:** Incident ở trạng thái `ACKNOWLEDGED`; AI investigation (nếu đang chạy) tiếp tục không bị ảnh hưởng.
+
+**UC-12 — Escalate Incident** *(tự động, hoặc thủ công)*
+- **Tác nhân:** System (Escalation Worker); On-call Responder (escalate thủ công)
+- **Mô tả:** Đưa incident lên level tiếp theo của escalation policy khi hết timeout mà chưa được acknowledge.
+- **Điều kiện tiên quyết:** Incident ở trạng thái `TRIGGERED` và đã hết `timeoutMinutes` của level hiện tại; hoặc responder chủ động escalate.
+- **Luồng sự kiện chính:**
+  1. Escalation Worker (dùng Redis-scheduled job) phát hiện timeout của level hiện tại.
+  2. Worker lấy Redis distributed lock trên incident để tránh xử lý trùng.
+  3. Hệ thống chuyển sang level tiếp theo trong `EscalationPolicy`, publish `IncidentEscalated`.
+  4. Notification Worker gửi thông báo tới target của level mới (UC-16).
+- **Luồng ngoại lệ:** Đã ở level cuối cùng → thông báo tới toàn bộ team/manager.
+- **Điều kiện sau:** Incident được gán trách nhiệm cho level mới; đồng hồ timeout của level mới bắt đầu chạy.
+
+**UC-13 — Quản lý Lịch On-call (Schedule)**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Tạo và cấu hình schedule, rotation, layer coverage cho team.
+- **Điều kiện tiên quyết:** Team đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Team Manager tạo Schedule (`DAILY`/`WEEKLY`/`CUSTOM`), thêm thành viên vào layer Primary/Secondary.
+  2. Hệ thống lưu schedule, có thể truy vấn qua `GET /schedules/{id}/on-call`.
+- **Điều kiện sau:** Schedule sẵn sàng để Escalation Policy tham chiếu.
+
+**UC-14 — Override Schedule**
+- **Tác nhân:** On-call Responder, Team Manager
+- **Mô tả:** Thay thế tạm thời người trực on-call (nghỉ phép, đổi ca).
+- **Điều kiện tiên quyết:** Schedule đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Actor tạo override qua `POST /schedules/{id}/overrides` kèm khoảng thời gian và người thay thế.
+  2. Hệ thống ưu tiên override khi resolve on-call trong khoảng thời gian đó.
+- **Điều kiện sau:** On-call hiện tại phản ánh đúng người được override.
+
+**UC-15 — Cấu hình Escalation Policy**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Định nghĩa các level escalation, target và timeout cho một service.
+- **Điều kiện tiên quyết:** Service và Schedule liên quan đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Team Manager tạo `EscalationPolicy` qua `POST /escalation-policies`, thêm các level với target (`USER`/`SCHEDULE`/`TEAM`) và `timeoutMinutes`.
+  2. Hệ thống liên kết policy với service tương ứng.
+- **Điều kiện sau:** Mọi incident phát sinh từ service này tuân theo policy mới.
+
+**UC-16 — Nhận Notification**
+- **Tác nhân:** On-call Responder, Stakeholder
+- **Mô tả:** Nhận thông báo qua kênh đã cấu hình khi có sự kiện liên quan tới incident.
+- **Điều kiện tiên quyết:** `NotificationRule` đã được cấu hình cho user/priority tương ứng.
+- **Luồng sự kiện chính:**
+  1. Hệ thống publish `NotificationRequested` (từ UC-10, UC-12,...).
+  2. Notification Worker resolve kênh và độ trễ theo `NotificationRule`.
+  3. Notification được gửi (email/WebSocket/Slack/SMS); nếu thất bại → retry, cuối cùng vào DLQ (xem §2.6).
+- **Điều kiện sau:** Responder/stakeholder nhận được thông báo, hoặc thông báo nằm trong DLQ chờ xử lý thủ công.
+
+**UC-17 — Collaborate trong Incident War Room**
+- **Tác nhân:** On-call Responder, Incident Commander
+- **Mô tả:** Nhiều responder cùng phối hợp xử lý một incident lớn theo thời gian thực.
+- **Điều kiện tiên quyết:** Incident đang ở trạng thái `TRIGGERED` hoặc `ACKNOWLEDGED`, thường là P1/P2.
+- **Luồng sự kiện chính:**
+  1. Responder được thêm làm `responder` của incident qua `POST /incidents/{id}/responders`.
+  2. Các bên trao đổi qua chat/timeline realtime (WebSocket/SSE) trong War Room.
+  3. Responder ghi Incident Notes qua `POST /incidents/{id}/notes`, làm context cho AI.
+- **Điều kiện sau:** Toàn bộ hoạt động phối hợp được ghi lại trong timeline của incident.
+
+**UC-18 — Đăng Status Update**
+- **Tác nhân:** Incident Commander (hoặc Communications Lead)
+- **Mô tả:** Công bố tiến độ xử lý incident cho stakeholder.
+- **Điều kiện tiên quyết:** Incident đang active.
+- **Luồng sự kiện chính:**
+  1. Actor gọi `POST /incidents/{id}/status-updates` với nội dung cập nhật (ví dụ "Investigating", "Mitigation in progress").
+  2. Hệ thống gửi update tới các stakeholder đã subscribe.
+- **Điều kiện sau:** Stakeholder nắm được tiến độ mới nhất mà không cần hỏi trực tiếp responder.
+
+**UC-19 — Resolve Incident**
+- **Tác nhân:** On-call Responder
+- **Mô tả:** Đóng một incident sau khi vấn đề đã được khắc phục.
+- **Điều kiện tiên quyết:** Incident ở trạng thái `ACKNOWLEDGED` (thường sau khi remediation đã có hiệu lực).
+- **Luồng sự kiện chính:**
+  1. Responder gọi `POST /incidents/{id}/resolve`.
+  2. Hệ thống chuyển trạng thái sang `RESOLVED`, publish `IncidentResolved`, ghi `resolvedAt`.
+  3. Hệ thống tự động yêu cầu AI Postmortem Agent soạn thảo PIR (UC-25).
+- **Điều kiện sau:** Incident đóng; MTTR được tính; quy trình Post-Incident Review bắt đầu.
+
+### 4.5 Use Case: Automation & AI Operations
+
+```mermaid
+flowchart LR
+    AutomationWorker[[Automation Worker]]
+    Responder[On-call Responder]
+    Commander[Incident Commander]
+    AIAgent((AI Agent))
+
+    AutomationWorker --> UC20([UC-20 Thực thi Runbook])
+    Responder --> UC20
+    Responder --> UC21([UC-21 Phê duyệt Remediation])
+    Commander --> UC21
+    AIAgent --> UC22([UC-22 AI Triage Alert])
+    AIAgent --> UC23([UC-23 AI Investigate Incident])
+    Responder --> UC24([UC-24 Truy vấn Knowledge Base])
+    AIAgent --> UC24
+    AIAgent --> UC25([UC-25 AI Generate Postmortem])
+    UC23 -.->|"risk = HIGH"| UC21
+    UC21 -.->|"approved"| UC20
+```
+
+**UC-20 — Thực thi Runbook (Trigger/Execute)**
+- **Tác nhân:** Automation Worker (tự động); On-call Responder (thủ công)
+- **Mô tả:** Thực thi một hành động vận hành đã định nghĩa trước (runbook) trên một service.
+- **Điều kiện tiên quyết:** Runbook tồn tại; nếu `requiresApproval = true` thì UC-21 phải hoàn tất trước.
+- **Luồng sự kiện chính:**
+  1. Runbook được kích hoạt (thủ công qua `POST /runbooks/{id}/execute`, hoặc tự động từ AI recommendation đã approve).
+  2. Automation Worker thực thi hành động (restart, rollback, scale,...).
+  3. Hệ thống ghi lại `automation_executions`, publish `AutomationExecuted`.
+- **Luồng ngoại lệ:** Thực thi thất bại → ghi log lỗi, thông báo cho responder.
+- **Điều kiện sau:** Hành động vận hành đã được thực thi (hoặc ghi nhận thất bại) trên service mục tiêu.
+
+**UC-21 — Phê duyệt Automated Remediation (Human Approval Gate)**
+- **Tác nhân:** On-call Responder, Incident Commander
+- **Mô tả:** Con người xem xét và phê duyệt (hoặc từ chối) một hành động remediation rủi ro cao do AI đề xuất.
+- **Điều kiện tiên quyết:** AI Remediation Agent đã đưa ra đề xuất với `riskLevel = HIGH` (UC-23).
+- **Luồng sự kiện chính:**
+  1. Hệ thống hiển thị đề xuất remediation kèm bằng chứng và mức rủi ro cho actor có quyền `AUTOMATION_EXECUTE`.
+  2. Actor xem xét, gọi `POST /automation/{id}/approve` (hoặc từ chối).
+  3. Nếu approve → publish `AutomationApproved`, chuyển sang UC-20.
+- **Luồng ngoại lệ:** Actor từ chối → đề xuất bị huỷ, responder xử lý thủ công.
+- **Điều kiện sau:** Quyết định phê duyệt/từ chối được ghi vào audit log; automation chỉ chạy khi đã approve.
+
+**UC-22 — AI Triage Alert**
+- **Tác nhân:** AI Agent (Triage Agent)
+- **Mô tả:** Phân loại nhanh một alert/incident mới: mức độ nghiêm trọng, trùng lặp, service ảnh hưởng.
+- **Điều kiện tiên quyết:** Incident vừa được tạo (UC-10).
+- **Luồng sự kiện chính:**
+  1. AI Agent nhận sự kiện `IncidentCreated`.
+  2. Agent gọi các tool (`getAlerts`, `searchPastIncidents`,...) để thu thập context.
+  3. Agent trả về kết quả triage (severity, likely service, related incidents, confidence) qua `POST /ai/incidents/{id}/triage`.
+- **Điều kiện sau:** Kết quả triage hiển thị trên Incident Detail, hỗ trợ responder ra quyết định nhanh hơn.
+
+**UC-23 — AI Investigate Incident**
+- **Tác nhân:** AI Agent (Investigation Agent)
+- **Mô tả:** Điều tra sâu để tìm giả thuyết root-cause, chạy song song với escalation.
+- **Điều kiện tiên quyết:** Incident đã được tạo; agent có quyền truy cập tool platform.
+- **Luồng sự kiện chính:**
+  1. Agent thu thập logs, metrics, recent deployments, dependencies (qua tool calling).
+  2. Agent truy vấn Knowledge Base (RAG) để tìm incident/runbook tương tự (UC-24).
+  3. Agent tổng hợp giả thuyết root-cause kèm độ tin cậy, đề xuất remediation và risk rating.
+  4. Nếu risk = `HIGH` → chuyển sang UC-21 (Human Approval); nếu `LOW` → có thể tự động thực thi theo policy.
+- **Điều kiện sau:** Kết quả investigation (root cause, bằng chứng, đề xuất) được gắn vào Incident Detail.
+
+**UC-24 — Truy vấn Knowledge Base**
+- **Tác nhân:** On-call Responder; AI Agent
+- **Mô tả:** Tìm kiếm runbook, tài liệu, hoặc incident cũ liên quan bằng RAG.
+- **Điều kiện tiên quyết:** Knowledge Base đã có dữ liệu được embed vào PGVector.
+- **Luồng sự kiện chính:**
+  1. Actor đặt câu hỏi (ví dụ "làm sao khôi phục Redis failure?").
+  2. Hệ thống embed câu hỏi, truy vấn PGVector để lấy các document/chunk liên quan nhất.
+  3. Kết quả được trả về kèm nguồn trích dẫn (runbook, incident cũ).
+- **Điều kiện sau:** Actor nhận được câu trả lời có căn cứ từ knowledge base.
+
+**UC-25 — AI Generate Postmortem Draft**
+- **Tác nhân:** AI Agent (Postmortem/Scribe Agent)
+- **Mô tả:** Tự động soạn thảo bản nháp Post-Incident Review sau khi incident resolve.
+- **Điều kiện tiên quyết:** Incident ở trạng thái `RESOLVED` (UC-19).
+- **Luồng sự kiện chính:**
+  1. Agent thu thập timeline, notes, chat, kết quả investigation của incident.
+  2. Agent tổng hợp thành bản nháp PIR (summary, root cause, impact, timeline, action items) ở trạng thái `DRAFT`.
+  3. Bản nháp được gửi tới Incident Commander/Team Manager để review (UC-26).
+- **Điều kiện sau:** Một `PostIncidentReview` ở trạng thái `DRAFT` được tạo, sẵn sàng cho con người chỉnh sửa.
+
+### 4.6 Use Case: Reliability Engineering & Governance
+
+```mermaid
+flowchart LR
+    Commander[Incident Commander]
+    TeamManager[Team Manager]
+    AccountAdmin[Account Admin]
+    Stakeholder[Stakeholder]
+
+    Commander --> UC26([UC-26 Review & Approve PIR])
+    TeamManager --> UC26
+    TeamManager --> UC27([UC-27 Xem Analytics Dashboard])
+    Stakeholder --> UC27
+    TeamManager --> UC28([UC-28 Cấu hình SLO])
+    TeamManager --> UC29([UC-29 Quản lý Maintenance Window])
+    AccountAdmin --> UC30([UC-30 Xem Audit Log])
+    AccountAdmin --> UC31([UC-31 Quản lý Status Page])
+    Commander --> UC31
+```
+
+**UC-26 — Review & Approve Post-Incident Review**
+- **Tác nhân:** Incident Commander, Team Manager
+- **Mô tả:** Xem xét, chỉnh sửa và phê duyệt bản PIR do AI soạn thảo.
+- **Điều kiện tiên quyết:** PIR ở trạng thái `DRAFT` (UC-25).
+- **Luồng sự kiện chính:**
+  1. Actor xem xét bản nháp, chỉnh sửa nội dung, gán owner/due date cho action item.
+  2. Actor chuyển trạng thái `IN_REVIEW` → `APPROVED` → `COMPLETED` khi action item hoàn tất.
+- **Điều kiện sau:** PIR chính thức được lưu vào Knowledge Base, phục vụ các lần AI investigation sau này.
+
+**UC-27 — Xem Analytics Dashboard**
+- **Tác nhân:** Team Manager, Stakeholder
+- **Mô tả:** Xem các chỉ số reliability (MTTA, MTTR, MTTD, alert-noise funnel, escalation rate).
+- **Điều kiện tiên quyết:** Có đủ dữ liệu incident lịch sử.
+- **Luồng sự kiện chính:**
+  1. Actor mở Dashboard.
+  2. Hệ thống tính toán các metric trực tiếp từ timestamp của incident.
+  3. Dashboard hiển thị biểu đồ theo service/team/khoảng thời gian.
+- **Điều kiện sau:** Actor có cái nhìn tổng quan về reliability để ra quyết định cải tiến.
+
+**UC-28 — Cấu hình SLO**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Khai báo SLO và error budget cho một service.
+- **Điều kiện tiên quyết:** Service đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Team Manager nhập mục tiêu SLO (ví dụ 99.9%) cho service.
+  2. Hệ thống theo dõi mức tiêu hao error budget dựa trên incident ảnh hưởng tới service đó.
+- **Điều kiện sau:** Service có SLO được giám sát; incident mới được quy về tiêu hao error budget.
+
+**UC-29 — Quản lý Maintenance Window**
+- **Tác nhân:** Team Manager
+- **Mô tả:** Đặt lịch bảo trì cho một service, trong đó event không được tạo thành incident.
+- **Điều kiện tiên quyết:** Service đã tồn tại.
+- **Luồng sự kiện chính:**
+  1. Team Manager tạo maintenance window qua khoảng thời gian bắt đầu/kết thúc.
+  2. Trong khoảng thời gian đó, event khớp service này bị suppress tự động (không tạo incident/notification).
+- **Điều kiện sau:** Việc bảo trì không gây nhiễu alert giả cho on-call responder.
+
+**UC-30 — Xem Audit Log**
+- **Tác nhân:** Account Admin
+- **Mô tả:** Tra cứu lịch sử các hành động có quyền hạn cao trong hệ thống.
+- **Điều kiện tiên quyết:** Actor có quyền `AUDIT_VIEW`.
+- **Luồng sự kiện chính:**
+  1. Admin truy vấn audit log theo actor, resource, khoảng thời gian.
+  2. Hệ thống trả về danh sách bản ghi (ai, làm gì, khi nào, giá trị cũ → mới).
+- **Điều kiện sau:** Admin có đầy đủ thông tin để phục vụ điều tra nội bộ hoặc tuân thủ.
+
+**UC-31 — Quản lý Status Page**
+- **Tác nhân:** Account Admin, Incident Commander, Communications Lead
+- **Mô tả:** Cập nhật trang trạng thái công khai/nội bộ phản ánh tình trạng vận hành của các service.
+- **Điều kiện tiên quyết:** Service đã tồn tại trong Service Directory.
+- **Luồng sự kiện chính:**
+  1. Hệ thống tự động đề xuất cập nhật status page dựa trên trạng thái incident hiện tại.
+  2. Actor xem xét, chỉnh sửa nội dung hướng tới công chúng (nếu cần), phê duyệt trước khi công bố.
+- **Điều kiện sau:** Status Page phản ánh đúng và kịp thời tình trạng vận hành các service.
+
+---
+
+## 5. Mô hình Dữ liệu (Database Schema)
+
+### 5.1 Tổng quan Entity theo Domain
+
+| Domain | Bảng chính |
+|---|---|
+| Identity & Access | `users`, `roles`, `permissions`, `user_roles`, `organizations`, `teams`, `team_members` |
+| Service & Integration | `services`, `service_dependencies`, `service_integrations`, `maintenance_windows` |
+| Event & Alert Processing | `events`, `alerts`, `alert_groups`, `routing_rules`, `orchestration_rules` |
+| Incident Management | `incidents`, `incident_alerts`, `incident_events`, `incident_notes`, `incident_responders`, `incident_subscribers` |
+| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` |
+| Notification | `notification_rules`, `notification_deliveries` |
+| Automation & Workflow | `workflows`, `workflow_steps`, `workflow_executions`, `runbooks`, `automation_actions`, `automation_executions` |
+| Knowledge & AI | `knowledge_documents`, `knowledge_chunks`, `embeddings`, `ai_agents`, `ai_sessions`, `ai_tool_calls`, `ai_investigations` |
+| Governance & Analytics | `post_incident_reviews`, `post_incident_actions`, `audit_logs`, `slo_configs`, `service_metrics` |
+
+### 5.2 Quan hệ Entity Cốt lõi
+
+Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu một hoặc nhiều `Services`. Mỗi `Service` liên kết với một `Integration` (cho event ingestion), một `EscalationPolicy` (cho routing), một `Schedule` (để resolve on-call), và tập hợp `Dependencies` với các service khác. `Events` đầu vào được chuyển thành `Alerts` gắn với một `Service`; các `Alerts` liên quan được gộp vào một `Incident`, incident này tích luỹ `Responders`, một `Timeline`, `Notes`, `Status Updates`, một `AI Investigation`, các lần thực thi `Automation` (nếu có), và cuối cùng là một `Postmortem`.
+
+### 5.3 Sơ đồ Quan hệ Thực thể (ERD)
+
+```mermaid
+erDiagram
+    ORGANIZATION ||--o{ TEAM : contains
+    ORGANIZATION ||--o{ USER : employs
+    TEAM ||--o{ TEAM_MEMBER : has
+    USER ||--o{ TEAM_MEMBER : "belongs to"
+    TEAM ||--o{ SERVICE : owns
+    SERVICE ||--o{ SERVICE_DEPENDENCY : "depends on"
+    SERVICE ||--o{ INTEGRATION : has
+    SERVICE ||--o| ESCALATION_POLICY : uses
+    ESCALATION_POLICY ||--o{ ESCALATION_RULE : contains
+    ESCALATION_RULE }o--|| SCHEDULE : targets
+    SCHEDULE ||--o{ SCHEDULE_LAYER : contains
+    INTEGRATION ||--o{ EVENT : receives
+    EVENT ||--o| ALERT : "processed into"
+    ALERT }o--|| SERVICE : "scoped to"
+    ALERT }o--o{ INCIDENT : "aggregated into"
+    INCIDENT }o--|| SERVICE : impacts
+    INCIDENT ||--o{ INCIDENT_RESPONDER : has
+    USER ||--o{ INCIDENT_RESPONDER : "assigned as"
+    INCIDENT ||--o{ INCIDENT_EVENT : logs
+    INCIDENT ||--o| POST_INCIDENT_REVIEW : generates
+
+    ORGANIZATION {
+        uuid id PK
+        string name
+    }
+    USER {
+        uuid id PK
+        string email
+        string displayName
+        string timezone
+    }
+    SERVICE {
+        uuid id PK
+        string name
+        string criticality
+        string status
+    }
+    ALERT {
+        uuid id PK
+        string dedupKey
+        string severity
+        string status
+    }
+    INCIDENT {
+        uuid id PK
+        string incidentNumber
+        string status
+        string priority
+    }
 ```
 
 ---
 
-# 8. Service Dependency Graph
+## 6. Nguyên tắc Thiết kế API (API Design Guidelines)
 
-Đây là feature rất đáng làm.
+### 6.1 Nguyên tắc Thiết kế
 
-Ví dụ:
+- **Hai bề mặt API riêng biệt.** Một **Events API** machine-generated (`POST /api/v1/events`) tối ưu cho throughput ingestion cao, xác thực bằng API key theo integration, tách biệt khỏi **Management API** hướng resource dùng cho cấu hình và thao tác do con người thực hiện, xác thực bằng **JWT** (cặp access + refresh token).
+- **Versioning.** Toàn bộ endpoint nằm dưới namespace `/api/v1/`; breaking change yêu cầu thêm version segment mới thay vì sửa trực tiếp một contract đang tồn tại.
+- **Đặt tên hướng resource.** Endpoint dùng danh từ số nhiều và các HTTP verb chuẩn (`GET`, `POST`, `PATCH`, `DELETE`); các hành động thay đổi trạng thái không thuần CRUD được biểu diễn dưới dạng sub-resource hoặc verb (`POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/escalate`).
+- **Idempotency.** Mọi lời gọi `POST /api/v1/events` phải an toàn khi retry: client gửi kèm header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain), và cùng một key khi gửi lại sẽ trả về kết quả gốc thay vì tạo hiệu ứng phụ trùng lặp.
+- **Định dạng lỗi nhất quán.** Lỗi trả về dưới dạng body có cấu trúc (`code`, `message`, `details`) thay vì một chuỗi text thuần, để cả UI và các integration đều có thể xử lý rẽ nhánh theo `code`.
+- **Pagination.** Các endpoint dạng list chấp nhận tham số `page`/`size` (hoặc cursor-based `after`) và trả về một envelope nhất quán kèm tổng số bản ghi và cursor cho trang tiếp theo.
+- **Rate limiting.** Áp dụng theo từng integration key tại biên Events API; hạn mức và phần còn lại được trả về qua header `X-RateLimit-*`.
 
-```text
-Payment API
-     ↓
-Payment Service
-     ↓
-PostgreSQL
-     ↓
-AWS RDS
-```
+### 6.2 Tổng quan Resource API
 
-Hoặc:
+| Domain | Endpoint chính |
+|---|---|
+| Auth | `POST /auth/login`, `POST /auth/refresh`, `GET /users/me` |
+| Organizations & Teams | `POST /organizations`, `POST /teams`, `POST /teams/{id}/members` |
+| Services | `POST /services`, `GET /services`, `GET /services/{id}`, `PATCH /services/{id}` |
+| Events (ingestion) | `POST /events` |
+| Alerts | `GET /alerts`, `GET /alerts/{id}`, `POST /alerts/{id}/resolve` |
+| Incidents | `POST /incidents`, `GET /incidents/{id}`, `POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/resolve`, `POST /incidents/{id}/escalate`, `POST /incidents/{id}/responders`, `POST /incidents/{id}/notes` |
+| Schedules | `POST /schedules`, `GET /schedules/{id}/on-call`, `POST /schedules/{id}/overrides` |
+| Escalation Policies | `POST /escalation-policies`, `GET /escalation-policies` |
+| AI | `POST /ai/incidents/{id}/triage`, `POST /ai/incidents/{id}/investigate`, `POST /ai/incidents/{id}/summarize`, `POST /ai/incidents/{id}/recommendations` |
+| Automation | `GET /runbooks`, `POST /runbooks/{id}/execute`, `POST /automation/{id}/approve` |
 
-```text
-Checkout
- ├── Payment
- ├── Inventory
- ├── User
- └── Redis
-```
-
-Nếu:
-
-```text
-PostgreSQL DOWN
-```
-
-AI có thể suy luận:
-
-```text
-PostgreSQL
-   ↓
-Payment
-   ↓
-Checkout
-   ↓
-Order
-```
-
-PagerDuty cũng sử dụng service dependency data để cung cấp context xung quanh incident và hỗ trợ tìm probable origin/root cause. ([PagerDuty][5])
-
----
-
-# 9. Module 4 — Integration & Event Ingestion
-
-Đây mới là phần khiến hệ thống giống PagerDuty.
-
-Cho phép hệ thống bên ngoài gửi event:
-
-```http
-POST /api/v1/events
-```
-
-Ví dụ:
+### 6.3 Event Ingestion Contract
 
 ```json
+POST /api/v1/events
+Authorization: Bearer <integration-key>
+Idempotency-Key: payment-cpu-high-2026-09-16T10:00:00Z
+
 {
   "source": "prometheus",
   "service": "payment-service",
   "eventType": "CPU_HIGH",
   "severity": "critical",
   "summary": "CPU > 95%",
-  "timestamp": "...",
+  "timestamp": "2026-09-16T10:00:00Z",
   "dedupKey": "payment-cpu-high"
 }
 ```
 
-Nguồn event:
-
-```text
-Prometheus
-Grafana
-AWS CloudWatch
-GitHub Actions
-Kubernetes
-Custom Application
-CI/CD
-```
-
-PagerDuty cũng tách Events API khỏi REST API: Events API dùng cho machine-generated event data, còn REST API phục vụ configuration/resource interaction. ([PagerDuty][4])
-
----
-
-# 10. Integration Key
-
-Mỗi integration có:
-
-```text
-integrationId
-serviceId
-name
-provider
-apiKey
-status
-createdAt
-```
-
-Ví dụ:
-
-```text
-payment-service
-    │
-    └── Prometheus Integration
-          ↓
-      API Key
-```
-
-Monitoring chỉ cần:
-
-```http
-POST /events
-Authorization: integration-key
-```
-
-Đây là concept rất sát PagerDuty. ([PagerDuty][4])
-
----
-
-# 11. Module 5 — Alert Management
-
-Đây là nơi phải phân biệt:
-
-```text
-EVENT ≠ ALERT ≠ INCIDENT
-```
-
-## Event
-
-Raw signal.
-
-```text
-CPU = 99%
-```
-
-## Alert
-
-Event đã được platform xử lý.
-
-```text
-CPU High on payment-service
-```
-
-## Incident
-
-Issue thực sự cần responder xử lý.
-
-```text
-Payment Service Production Outage
-```
-
-PagerDuty chính thức sử dụng chain event → alert → incident, và nhiều alerts có thể được aggregate vào một incident. ([PagerDuty][2])
-
----
-
-# 12. Alert Deduplication
-
-Ví dụ:
-
-```text
-10:00 CPU 95%
-10:01 CPU 96%
-10:02 CPU 97%
-10:03 CPU 98%
-```
-
-Không tạo 4 incident.
-
-Dùng:
-
-```text
-dedupKey
-```
-
-Kết quả:
-
-```text
-1 Incident
- ├── Alert 1
- ├── Alert 2
- ├── Alert 3
- └── Alert 4
-```
-
----
-
-# 13. Alert Grouping
-
-Ví dụ:
-
-```text
-Database connection failure
-API latency high
-Payment timeout
-Checkout timeout
-```
-
-AI/rule engine xác định:
-
-```text
-Potentially related
-```
-
-→ group vào cùng incident.
-
-PagerDuty hiện hỗ trợ intelligent, content-based và time-based alert grouping. ([PagerDuty][6])
-
----
-
-# 14. Alert Suppression
-
-Ví dụ:
-
-```text
-Deployment đang diễn ra
-```
-
-Trong 15 phút:
-
-```text
-Suppress alerts
-```
-
-Alert vẫn được lưu để forensic/context nhưng không tạo incident/notification. Đây cũng là behavior của PagerDuty maintenance/suppression model. ([PagerDuty][7])
-
----
-
-# 15. Module 6 — Event Orchestration / Rule Engine
-
-Đây là module **rất đáng giá cho CV**.
-
-Người quản trị có thể tạo:
-
-```text
-IF condition
-THEN action
-```
-
-Ví dụ:
-
-```text
-IF
-service = payment
-AND severity = critical
-
-THEN
-priority = P1
-route = Payment Team
-```
-
-Hoặc:
-
-```text
-IF
-environment = staging
-
-THEN
-suppress alert
-```
-
-Hoặc:
-
-```text
-IF
-event.count >= 5 within 5 minutes
-
-THEN
-create incident
-```
-
-PagerDuty hiện có Global Orchestration và Service Orchestration, với routing, suppression, enrichment, incident actions và automation actions. ([PagerDuty][8])
-
----
-
-# 16. Rule Engine model
-
-```text
-Rule
-├── priority
-├── conditions[]
-└── actions[]
-```
-
-Condition:
-
-```text
-field
-operator
-value
-```
-
-Operators:
-
-```text
-EQUALS
-NOT_EQUALS
-CONTAINS
-STARTS_WITH
-GREATER_THAN
-LESS_THAN
-IN
-```
-
-Actions:
-
-```text
-ROUTE
-SUPPRESS
-DEDUP
-SET_PRIORITY
-SET_SEVERITY
-ADD_TAG
-CREATE_INCIDENT
-TRIGGER_WORKFLOW
-```
-
----
-
-# 17. Module 7 — Incident Management
-
-Đây là core.
-
-## Incident
-
-```text
-id
-incidentNumber
-title
-description
-status
-priority
-severity
-serviceId
-assignee
-escalationPolicy
-createdAt
-acknowledgedAt
-resolvedAt
-```
-
-Status:
-
-```text
-TRIGGERED
-ACKNOWLEDGED
-RESOLVED
-```
-
-PagerDuty sử dụng lifecycle Triggered → Acknowledged → Resolved, trong đó acknowledge dừng escalation nhưng chưa đóng incident. ([PagerDuty][9])
-
----
-
-# 18. Incident actions
-
-```text
-Trigger
-Acknowledge
-Resolve
-Reassign
-Escalate
-Add Responder
-Add Note
-Change Priority
-Add Status Update
-Subscribe
-Run Workflow
-Run Automation
-```
-
----
-
-# 19. Incident Timeline
-
-Đây là feature rất nên có.
-
-Ví dụ:
-
-```text
-10:00 Incident created
-10:00 Alert received
-10:00 Assigned to John
-10:05 Notification sent
-10:07 John acknowledged
-10:09 Alice added as responder
-10:11 AI investigation started
-10:14 Database identified as probable cause
-10:20 Rollback executed
-10:22 Service recovered
-10:25 Incident resolved
-```
-
-Mỗi action tạo:
-
-```text
-IncidentEvent
-```
-
-```text
-type
-actor
-timestamp
-metadata
-```
-
----
-
-# 20. Incident Notes
-
-Responders có thể ghi:
-
-```text
-"Database connections exhausted."
-"Rollback started."
-"Waiting for DBA."
-```
-
-AI có thể dùng notes này như context.
-
----
-
-# 21. Module 8 — On-Call Scheduling
-
-Đây là **một trong những feature signature của PagerDuty**.
-
-Ví dụ:
-
-```text
-Backend On-call
-
-Monday → Alex
-Tuesday → John
-Wednesday → Minh
-Thursday → Lan
-Friday → Alex
-```
-
-PagerDuty cho phép schedule rotation, multiple layers và overrides. ([PagerDuty][10])
-
----
-
-# 22. Schedule
-
-```text
-Schedule
-├── name
-├── timezone
-├── rotation_type
-├── start_date
-├── end_date
-└── layers[]
-```
-
-Rotation:
-
-```text
-DAILY
-WEEKLY
-CUSTOM
-```
-
----
-
-# 23. Schedule Layer
-
-Ví dụ:
-
-```text
-Primary
- ├── Alex
- ├── John
- └── Minh
-
-Secondary
- ├── Lan
- └── David
-```
-
----
-
-# 24. Schedule Override
-
-Ví dụ:
-
-```text
-John nghỉ phép 10/10 → 15/10
-```
-
-Admin:
-
-```text
-Override John
-     ↓
-Lan
-```
-
-PagerDuty cũng dùng override layer để xử lý vacation, sickness hoặc shift swap. ([PagerDuty][11])
-
----
-
-# 25. Who Is On Call?
-
-API:
-
-```http
-GET /schedules/{id}/on-call
-```
-
-Response:
-
-```json
-{
-  "schedule": "Backend Primary",
-  "currentResponder": "Alex"
-}
-```
-
----
-
-# 26. Module 9 — Escalation Policy
-
-Đây là heart của PagerDuty.
-
-Ví dụ:
-
-```text
-Incident
-   ↓
-Level 1
-Backend Primary
-   ↓
-wait 10 min
-   ↓
-Level 2
-Backend Secondary
-   ↓
-wait 15 min
-   ↓
-Level 3
-Engineering Manager
-```
-
-PagerDuty escalation policy là ordered rules/levels, và nếu responder không acknowledge trong timeout thì incident đi sang level tiếp theo. ([PagerDuty][3])
-
----
-
-# 27. Escalation Rule
-
-```text
-EscalationPolicy
- ├── Level 1
- │     └── Backend Primary
- │
- ├── Level 2
- │     └── Backend Secondary
- │
- └── Level 3
-       └── Manager
-```
-
-Mỗi level:
-
-```text
-targets[]
-timeoutMinutes
-```
-
-Target:
-
-```text
-USER
-SCHEDULE
-TEAM
-```
-
----
-
-# 28. Escalation Engine
-
-Đây là nơi có thể show **concurrent/asynchronous processing**.
-
-Pseudo:
-
-```text
-incident triggered
-      ↓
-find current level
-      ↓
-notify responder
-      ↓
-wait timeout
-      ↓
-if acknowledged
-    stop
-else
-    next level
-```
-
-Nhưng thực tế không nên giữ HTTP request chờ 10 phút.
-
-Dùng:
-
-```text
-Kafka
-+
-scheduled jobs
-+
-Redis
-```
-
-Ví dụ:
-
-```text
-IncidentCreated
-      ↓
-Kafka
-      ↓
-Escalation Worker
-      ↓
-Notification
-      ↓
-Redis / Scheduler
-      ↓
-EscalationTimeout
-```
-
-Đây là chỗ rất tốt để chứng minh kiến thức distributed system.
-
----
-
-# 29. Module 10 — Notification
-
-PagerDuty hỗ trợ nhiều notification channels như push, phone, SMS, email và Slack, đồng thời cho phép cấu hình thứ tự/thời gian của notification rules. ([PagerDuty][12])
-
-Đối với đồ án:
-
-### MVP
-
-```text
-Email
-In-App
-WebSocket
-```
-
-### Advanced
-
-```text
-Telegram
-Slack
-Discord
-SMS
-```
-
----
-
-# 30. Notification Rules
-
-User có thể cấu hình:
-
-```text
-P1 → immediately Email
-P1 → +1min Telegram
-P1 → +3min Phone/SMS
-```
-
-Hoặc:
-
-```text
-P3 → Email only
-```
-
-Data model:
-
-```text
-NotificationRule
-├── userId
-├── incidentPriority
-├── channel
-├── delaySeconds
-└── enabled
-```
-
----
-
-# 31. Notification Worker
-
-Không gửi email trực tiếp từ controller.
-
-Sai:
-
-```text
-POST /incident
-   ↓
-SMTP
-   ↓
-response
-```
-
-Nên:
-
-```text
-POST /incident
-   ↓
-DB
-   ↓
-Kafka
-   ↓
-Notification Consumer
-   ↓
-Email
-```
-
----
-
-# 32. Module 11 — Incident Collaboration
-
-Một incident lớn cần nhiều người.
-
-PagerDuty có responder requests và conference bridge để kéo thêm responders vào incident. ([PagerDuty][13])
-
-NexusOps:
-
-```text
-Incident
- ├── Assignee
- ├── Responders
- ├── Subscribers
- └── Incident Commander
-```
-
----
-
-# 33. Incident Roles
-
-Đối với major incident:
-
-```text
-Incident Commander
-Technical Lead
-Communications Lead
-Scribe
-Responder
-```
-
-Đây là điểm mình khuyên nên thêm vì hệ thống sẽ trông **enterprise hơn rất nhiều**.
-
----
-
-# 34. Live Incident Room
-
-Mỗi P1 incident có:
-
-```text
-Incident Room
-```
-
-Có:
-
-```text
-Chat
-Timeline
-Status
-Responders
-AI Agent
-Alerts
-Logs
-Runbook
-Service Graph
-```
-
-Realtime bằng:
-
-```text
-WebSocket / SSE
-```
-
----
-
-# 35. Incident Status Updates
-
-Ví dụ:
-
-```text
-10:00 Investigating
-10:10 Root cause suspected
-10:15 Mitigation in progress
-10:25 Service recovering
-10:30 Resolved
-```
-
-Stakeholder có thể subscribe để nhận update.
-
-PagerDuty có stakeholder subscriptions, status-update templates và status dashboards cho việc truyền đạt customer/business impact. ([PagerDuty][14])
-
----
-
-# 36. Module 12 — Automation / Runbook
-
-Đây là phần để tiến từ:
-
-> "Incident management"
-
-sang:
-
-> "Operations automation."
-
-Ví dụ runbook:
-
-```text
-Restart payment service
-Clear Redis cache
-Scale Kubernetes deployment
-Rollback deployment
-Check database connectivity
-Get application logs
-```
-
-Một runbook:
-
-```text
-Runbook
-├── name
-├── description
-├── command
-├── service
-├── riskLevel
-└── requiresApproval
-```
-
-PagerDuty Automation Actions cũng hỗ trợ diagnostic/remediation actions và có thể trigger từ event orchestration. ([PagerDuty][15])
-
----
-
-# 37. Human Approval
-
-**Tuyệt đối không để AI tự chạy shell command production mà không có control.**
-
-Ví dụ:
-
-```text
-AI:
-"Rollback deployment to v1.42"
-
-       ↓
-
-Risk = HIGH
-
-       ↓
-
-Human Approval
-
-       ↓
-
-Approved
-
-       ↓
-
-Automation Worker
-
-       ↓
-
-Execute
-```
-
-Đây cũng phù hợp với hướng PagerDuty hiện tại: SRE Agent có thể đề xuất/perform approved remediation và được thiết kế với controls/guardrails. ([PagerDuty][1])
-
----
-
-# 38. Module 13 — Knowledge Base
-
-Lưu:
-
-```text
-Runbook
-Architecture Document
-Troubleshooting Guide
-FAQ
-Past Incident
-Postmortem
-```
-
-Ví dụ:
-
-```text
-"Payment timeout troubleshooting"
-
-1. Check DB
-2. Check Redis
-3. Check payment provider
-4. Check deployment
-5. Rollback if necessary
-```
-
----
-
-# 39. RAG
-
-Documents:
-
-```text
-Knowledge
-     ↓
-Chunk
-     ↓
-Embedding
-     ↓
-Vector DB
-     ↓
-PGVector
-```
-
-AI query:
-
-```text
-Why is payment-service timing out?
-```
-
-RAG retrieves:
-
-```text
-3 relevant documents
-+
-5 past incidents
-+
-2 runbooks
-```
-
----
-
-# 40. Module 14 — AI Platform
-
-Đây là phần **khác biệt lớn nhất của project**.
-
-Không làm:
-
-```text
-ChatGPT clone
-```
-
-Mà làm:
-
-> **AI agents with operational tools.**
-
-PagerDuty hiện đã xây AI theo hướng specialized agents cho các giai đoạn khác nhau của incident lifecycle, gồm SRE Agent, Scribe Agent, Shift Agent và Insights Agent. ([PagerDuty][1])
-
----
-
-# 41. AI Agent #1 — Alert Triage Agent
-
-Input:
-
-```text
-Alert
-```
-
-AI:
-
-```text
-Classify severity
-Check duplicates
-Find related alerts
-Identify affected service
-Find previous incidents
-```
-
-Output:
-
-```json
-{
-  "severity": "P1",
-  "likelyService": "payment-service",
-  "relatedIncidents": [],
-  "confidence": 0.91
-}
-```
-
----
-
-# 42. AI Agent #2 — Incident Investigation Agent
-
-Đây nên là **AI flagship feature**.
-
-User:
-
-> "Investigate this incident."
-
-Agent thực hiện:
-
-```text
-Incident
- ↓
-Get alerts
- ↓
-Get service
- ↓
-Get dependencies
- ↓
-Get recent deployments
- ↓
-Get logs
- ↓
-Get metrics
- ↓
-Get similar incidents
- ↓
-Search knowledge base
- ↓
-Reason
- ↓
-Produce hypotheses
-```
-
-PagerDuty mô tả SRE Agent hiện tại theo hướng gather signals từ logs, metrics, deployments, past incidents và knowledge/context trong một investigation kéo dài cho đến khi converges. ([PagerDuty][16])
-
----
-
-# 43. Tool Calling
-
-AI Agent được cấp tools:
-
-```text
-getIncident()
-getAlerts()
-getService()
-getDependencies()
-getRecentDeployments()
-getLogs()
-getMetrics()
-searchKnowledge()
-searchPastIncidents()
-getOnCallResponder()
-runDiagnostic()
-```
-
-LLM tự quyết định:
-
-```text
-Need database info
-     ↓
-getDependencies()
-
-Need deployment data
-     ↓
-getRecentDeployments()
-```
-
-Đây mới thực sự là **Agent**, thay vì chỉ prompt LLM.
-
----
-
-# 44. AI Investigation Output
-
-Ví dụ:
-
-```text
-Probable Root Cause
-────────────────────
-
-Payment service database connection pool exhausted.
-
-Evidence:
-• 87% increase in DB connection failures
-• Connection pool reached 100%
-• Deployment v1.42 occurred 8 minutes before incident
-• Similar incident INC-182 occurred 3 months ago
-
-Confidence: 87%
-
-Recommended Actions:
-1. Rollback v1.42
-2. Restart payment-service
-3. Increase DB pool size
-
-Risk:
-HIGH
-
-Requires approval: YES
-```
-
----
-
-# 45. AI Agent #3 — Postmortem/Scribe Agent
-
-Sau incident:
-
-```text
-Timeline
-Logs
-Notes
-Actions
-Chat
-Deployment
-AI investigation
-```
-
-→ AI tạo:
-
-```text
-Incident Summary
-Impact
-Timeline
-Root Cause
-Contributing Factors
-Detection
-Resolution
-What went well
-What went wrong
-Action Items
-```
-
-PagerDuty hiện đã đưa AI-generated Post-Incident Reviews vào product rollout, và Scribe Agent dùng incident meetings/channel information để hỗ trợ post-incident review. ([PagerDuty][17])
-
----
-
-# 46. AI Agent #4 — Knowledge Agent
-
-Query:
-
-> "How do we recover Redis failure?"
-
-Agent:
-
-```text
-RAG
- ↓
-Runbook
- ↓
-Past incidents
- ↓
-Recommend procedure
-```
-
-Không thực thi.
-
----
-
-# 47. AI Agent #5 — Remediation Agent
-
-Advanced.
-
-AI xác định:
-
-```text
-Recommended:
-restart deployment
-
-Risk:
-LOW
-```
-
-Hoặc:
-
-```text
-rollback deployment
-```
-
-Risk:
-
-```text
-HIGH
-```
-
-→ requires human approval.
-
----
-
-# 48. AI Agent #6 — On-call Assistant
-
-Ví dụ:
-
-> "Who should I page for payment?"
-
-Agent:
-
-```text
-Payment Service
- ↓
-Escalation Policy
- ↓
-Current schedule
- ↓
-Current on-call
-```
-
-Output:
-
-```text
-Current primary responder:
-Nguyen Van A
-
-Backup:
-Nguyen Van B
-```
-
----
-
-# 49. Module 15 — Post-Incident Review
-
-Incident resolved chưa phải kết thúc.
-
-Tạo PIR:
-
-```text
-PostIncidentReview
-├── incidentId
-├── summary
-├── rootCause
-├── impact
-├── timeline
-├── actionItems
-├── owner
-├── dueDate
-└── status
-```
-
-Stages có thể:
-
-```text
-DRAFT
-IN_REVIEW
-APPROVED
-COMPLETED
-```
-
-PagerDuty hiện có Post-Incident Review workflow/stages. ([PagerDuty][18])
-
----
-
-# 50. Action Items
-
-Ví dụ:
-
-```text
-Increase DB connection pool
-Owner: Backend Team
-Due: 20/09
-Status: TODO
-```
-
-Types:
-
-```text
-BUG_FIX
-INFRASTRUCTURE
-MONITORING
-PROCESS
-DOCUMENTATION
-SECURITY
-```
-
----
-
-# 51. Module 16 — Analytics
-
-Dashboard:
-
-```text
-Total Incidents
-P1 Incidents
-MTTA
-MTTR
-Incident Frequency
-Alert Volume
-Escalation Rate
-Resolution Rate
-```
-
----
-
-# 52. Reliability Metrics
-
-Đây là những metric nên làm:
-
-### MTTA
-
-Mean Time To Acknowledge
-
-```text
-acknowledgedAt - triggeredAt
-```
-
-### MTTR
-
-Mean Time To Resolve
-
-```text
-resolvedAt - triggeredAt
-```
-
-### MTTD
-
-Mean Time To Detect
-
-```text
-detectedAt - actualFailureAt
-```
-
-### Escalation Rate
-
-```text
-escalated incidents
---------------------
-total incidents
-```
-
----
-
-# 53. Alert Noise Analytics
-
-Ví dụ:
-
-```text
-Total Events
-100,000
-
-Alerts
-15,000
-
-Deduplicated
-9,000
-
-Suppressed
-2,000
-
-Incidents
-800
-```
-
-Dashboard:
-
-```text
-Event
- ↓
-Alert
- ↓
-Incident
-```
-
-Đây rất sát tư duy Event Analytics của PagerDuty, nơi họ theo dõi event journey từ ingestion tới outcome như deduplication, suppression, routing và incident creation. ([PagerDuty][19])
-
----
-
-# 54. SLA / SLO
-
-Có thể thêm:
-
-```text
-Service
- ├── SLO: 99.9%
- ├── Error Budget
- └── Availability
-```
-
-Incident ảnh hưởng:
-
-```text
-Payment Service
-SLO = 99.9%
-Current = 99.72%
-```
-
----
-
-# 55. Status Page
-
-Đây là **optional nhưng rất đẹp khi demo**.
-
-Public:
-
-```text
-NexusOps Status
-
-Payment API       Operational
-Authentication    Operational
-Checkout          Degraded
-Database          Operational
-```
-
-Khi P1 xảy ra:
-
-```text
-Checkout
-↓
-Major Outage
-
-Investigating
-```
-
-PagerDuty hiện có public/private/audience-specific status pages và hỗ trợ automated updates với human approval. ([PagerDuty][20])
-
----
-
-# 56. Maintenance Window
-
-Admin có thể:
-
-```text
-Payment Service
-Maintenance:
-01:00 - 02:00
-```
-
-Trong thời gian này:
-
-```text
-incoming events
-      ↓
-SUPPRESS
-```
-
-Không tạo incident.
-
-PagerDuty cũng có maintenance window để tạm disable triggering cho service trong một khoảng thời gian. ([PagerDuty][21])
-
----
-
-# 57. Audit Log
-
-Mọi critical action phải log:
-
-```text
-WHO
-DID WHAT
-WHEN
-ON WHICH OBJECT
-FROM WHAT
-TO WHAT
-```
-
-Ví dụ:
-
-```text
-Admin John
-changed escalation timeout
-10 → 15 minutes
-```
-
-Entity:
-
-```text
-AuditLog
-├── actorId
-├── action
-├── resourceType
-├── resourceId
-├── oldValue
-├── newValue
-├── ipAddress
-└── timestamp
-```
-
-Đây là feature mình khuyên **Must**, đặc biệt nếu muốn project có vẻ enterprise.
-
----
-
-# 58. Event-driven architecture
-
-Đây là kiến trúc mình đề xuất:
-
-```text
-                 ┌─────────────────┐
-                 │ Monitoring Tools│
-                 └────────┬────────┘
-                          │
-                          ▼
-                ┌───────────────────┐
-                │ Event Ingestion   │
-                └─────────┬─────────┘
-                          │
-                          ▼
-                ┌───────────────────┐
-                │ Orchestration     │
-                │ Rule Engine       │
-                └─────────┬─────────┘
-                          │
-                  ┌───────┴───────┐
-                  ▼               ▼
-               Alert           Suppress
-                  │
-                  ▼
-           Dedup / Grouping
-                  │
-                  ▼
-               Incident
-                  │
-                  ▼
-              Kafka Bus
-           ┌──────┼─────────┬─────────┐
-           ▼      ▼         ▼         ▼
-       Notify   Escalate    AI      Audit
-           │      │         │         │
-           │      │         ▼         │
-           │      │     Investigation │
-           │      │         │         │
-           └──────┴─────────┴─────────┘
-                         │
-                         ▼
-                      Resolve
-                         │
-                         ▼
-                       PIR
-                         │
-                         ▼
-                    Knowledge
-```
-
----
-
-# 59. Kafka Events
-
-Các event chính:
-
-```text
-EventReceived
-AlertCreated
-AlertDeduplicated
-AlertGrouped
-IncidentCreated
-IncidentAcknowledged
-IncidentEscalated
-ResponderAdded
-NotificationRequested
-NotificationSent
-AIInvestigationStarted
-AIInvestigationCompleted
-AutomationRequested
-AutomationApproved
-AutomationExecuted
-IncidentResolved
-PIRCreated
-```
-
----
-
-# 60. Redis
-
-Dùng Redis cho:
-
-```text
-Rate limiting
-Caching
-Idempotency
-Current on-call cache
-Incident locks
-Dedup keys
-Temporary workflow state
-AI session state
-```
-
-Ví dụ:
-
-```text
-dedup:payment-cpu-high
-```
-
----
-
-# 61. Idempotency
-
-Đây là feature **rất đáng ghi vào CV**.
-
-Monitoring có thể gửi:
-
-```text
-same event
-same event
-same event
-```
-
-Server phải đảm bảo:
-
-```text
-1 event → 1 effect
-```
-
-Ví dụ:
-
-```text
-POST /events
-Idempotency-Key: abc123
-```
-
-Nếu request được gửi lại:
-
-```text
-return existing result
-```
-
----
-
-# 62. Distributed locking
-
-Hai worker cùng xử lý:
-
-```text
-Incident INC-123
-```
-
-Không được:
-
-```text
-Worker A → escalate
-Worker B → escalate
-```
-
-Dùng:
-
-```text
-Redis distributed lock
-```
-
-hoặc optimistic locking:
-
-```text
-version
-```
-
----
-
-# 63. Retry + Dead Letter Queue
-
-Notification:
-
-```text
-Send Email
-   ↓
-FAILED
-   ↓
-Retry #1
-   ↓
-FAILED
-   ↓
-Retry #2
-   ↓
-FAILED
-   ↓
-DLQ
-```
-
-Kafka:
-
-```text
-notification.retry
-notification.dlq
-```
-
----
-
-# 64. Rate Limiting
-
-Ví dụ một service bị lỗi:
-
-```text
-10,000 events/sec
-```
-
-Không được để hệ thống chết theo.
-
-Dùng:
-
-```text
-Redis Token Bucket
-```
-
-Ví dụ:
-
-```text
-100 requests/sec/service
-```
-
----
-
-# 65. Architecture choice
-
-Mình **không khuyên nhóm làm 15 microservices ngay từ đầu**.
-
-Làm:
-
-## Phase 1
-
-```text
-Modular Monolith
-Spring Boot
-PostgreSQL
-Redis
-```
-
-Modules:
-
-```text
-auth
-organization
-service
-event
-alert
-incident
-schedule
-escalation
-notification
-```
-
-Sau khi core chạy:
-
-```text
-Kafka
-AI
-Automation
-```
-
-rồi mới tách workload nếu cần.
-
----
-
-# 66. Stack đề xuất
-
-## Backend
-
-```text
-Java 21/25
-Spring Boot
-Spring Security
-Spring Data JPA
-Hibernate
-Spring Validation
-Spring Web
-Spring WebSocket
-Spring Kafka
-Spring AI
-```
-
-## Database
-
-```text
-PostgreSQL
-PGVector
-Redis
-```
-
-## Messaging
-
-```text
-Kafka
-```
-
-## AI
-
-```text
-OpenAI / Anthropic
-Spring AI
-RAG
-Tool Calling
-Embeddings
-```
-
-## Infrastructure
-
-```text
-Docker
-Docker Compose
-GitHub Actions
-AWS
-```
-
-## Observability
-
-```text
-Prometheus
-Grafana
-Loki
-OpenTelemetry
-```
-
----
-
-# 67. Database sơ bộ
-
-Các bảng chính:
-
-```text
-users
-roles
-permissions
-user_roles
-
-organizations
-teams
-team_members
-
-services
-service_dependencies
-service_integrations
-maintenance_windows
-
-events
-alerts
-alert_groups
-
-routing_rules
-orchestration_rules
-
-incidents
-incident_alerts
-incident_events
-incident_notes
-incident_responders
-incident_subscribers
-
-schedules
-schedule_layers
-schedule_members
-schedule_overrides
-
-escalation_policies
-escalation_rules
-
-notification_rules
-notification_deliveries
-
-workflows
-workflow_steps
-workflow_executions
-
-runbooks
-automation_actions
-automation_executions
-
-knowledge_documents
-knowledge_chunks
-embeddings
-
-ai_agents
-ai_sessions
-ai_tool_calls
-ai_investigations
-
-post_incident_reviews
-post_incident_actions
-
-audit_logs
-
-slo_configs
-service_metrics
-```
-
----
-
-# 68. Core relationships
-
-```text
-Organization
-   │
-   ├── Users
-   ├── Teams
-   │      │
-   │      └── Services
-   │
-   └── Escalation Policies
-             │
-             └── Schedules
-```
-
-Service:
-
-```text
-Service
- ├── Integration
- ├── Escalation Policy
- ├── Schedule
- ├── Dependencies
- ├── Alerts
- └── Incidents
-```
-
-Incident:
-
-```text
-Incident
- ├── Alerts
- ├── Responders
- ├── Timeline
- ├── Notes
- ├── Status Updates
- ├── AI Investigation
- ├── Automation
- └── Postmortem
-```
-
----
-
-# 69. Main API design
-
-## Auth
-
-```http
-POST /api/v1/auth/login
-POST /api/v1/auth/refresh
-```
-
-## Services
-
-```http
-POST   /api/v1/services
-GET    /api/v1/services
-GET    /api/v1/services/{id}
-PATCH  /api/v1/services/{id}
-DELETE /api/v1/services/{id}
-```
-
-## Events
-
-```http
-POST /api/v1/events
-```
-
-## Alerts
-
-```http
-GET    /api/v1/alerts
-GET    /api/v1/alerts/{id}
-POST   /api/v1/alerts/{id}/resolve
-```
-
-## Incidents
-
-```http
-POST   /api/v1/incidents
-GET    /api/v1/incidents
-GET    /api/v1/incidents/{id}
-
-POST   /api/v1/incidents/{id}/acknowledge
-POST   /api/v1/incidents/{id}/resolve
-POST   /api/v1/incidents/{id}/escalate
-POST   /api/v1/incidents/{id}/responders
-POST   /api/v1/incidents/{id}/notes
-POST   /api/v1/incidents/{id}/status-updates
-```
-
-## Schedules
-
-```http
-POST /api/v1/schedules
-GET  /api/v1/schedules
-GET  /api/v1/schedules/{id}/on-call
-POST /api/v1/schedules/{id}/overrides
-```
-
-## Escalation
-
-```http
-POST /api/v1/escalation-policies
-GET  /api/v1/escalation-policies
-```
-
-## AI
-
-```http
-POST /api/v1/ai/incidents/{id}/triage
-POST /api/v1/ai/incidents/{id}/investigate
-POST /api/v1/ai/incidents/{id}/summarize
-POST /api/v1/ai/incidents/{id}/recommendations
-```
-
-## Automation
-
-```http
-GET  /api/v1/runbooks
-POST /api/v1/runbooks/{id}/execute
-POST /api/v1/automation/{id}/approve
-```
-
----
-
-# 70. Một incident P1 hoàn chỉnh sẽ chạy như thế nào?
-
-Đây nên là **demo chính của nhóm**.
-
-Giả sử:
-
-```text
-Payment Service Database Down
-```
-
-## Step 1
-
-Prometheus:
-
-```text
-DB connection failures > threshold
-```
-
-gửi:
-
-```http
-POST /events
-```
-
----
-
-## Step 2
-
-Event orchestration:
-
-```text
-service = payment
-severity = critical
-```
-
-→ P1.
-
----
-
-## Step 3
-
-Dedup engine:
-
-```text
-dedupKey = payment-db-connection
-```
-
-Nếu chưa tồn tại:
-
-```text
-create alert
-```
-
----
-
-## Step 4
-
-Incident engine:
-
-```text
-Alert
- ↓
-Incident INC-1001
-```
-
----
-
-## Step 5
-
-Escalation:
-
-```text
-Payment Primary
-```
-
----
-
-## Step 6
-
-Notification:
-
-```text
-WebSocket
-Email
-Slack/Telegram
-```
-
----
-
-## Step 7
-
-AI Triage:
-
-```text
-Find related alerts
-Find recent deploys
-Find dependencies
-```
-
----
-
-## Step 8
-
-AI Investigation:
-
-```text
-Database failures increased
-+
-deployment 8 minutes ago
-+
-same pattern in INC-884
-```
-
-→ probable root cause.
-
----
-
-## Step 9
-
-AI Recommendation:
-
-```text
-Rollback payment-service v1.42
-```
-
----
-
-## Step 10
-
-Human approval:
-
-```text
-Approve
-```
-
----
-
-## Step 11
-
-Automation:
-
-```text
-Rollback deployment
-```
-
----
-
-## Step 12
-
-Monitoring reports:
-
-```text
-DB connections recovered
-```
-
----
-
-## Step 13
-
-Incident:
-
-```text
-RESOLVED
-```
-
----
-
-## Step 14
-
-AI Postmortem:
-
-```text
-Impact
-Timeline
-Root Cause
-Resolution
-Action Items
-```
-
----
-
-# 71. Đây mới là demo "ăn điểm"
-
-Thay vì demo:
-
-```text
-Login
-Create service
-Create incident
-Delete incident
-```
-
-Nhóm demo:
-
-```text
-1. Monitoring sends 20 alerts
-2. System deduplicates them
-3. Creates one P1 incident
-4. Routes to on-call
-5. Escalates if nobody responds
-6. AI investigates
-7. AI finds recent deployment
-8. AI recommends rollback
-9. Human approves
-10. Automation executes
-11. Incident resolves
-12. AI creates postmortem
-13. Dashboard updates MTTR
-```
-
-Đó là một **end-to-end operational workflow**.
-
----
-
-# 72. Phân chia nhóm 5 người
-
-## Member 1 — Core Incident Backend
-
-Phụ trách:
-
-```text
-Service
-Event
-Alert
-Incident
-Timeline
-Incident API
-```
-
-Công nghệ:
-
-```text
-Spring Boot
-JPA
-PostgreSQL
-Kafka
-```
-
----
-
-## Member 2 — Identity / Organization / Access
-
-```text
-Auth
-JWT
-RBAC
-Organization
-Teams
-Users
-Audit
-```
-
----
-
-## Member 3 — Reliability / Distributed System
-
-```text
-On-call
-Schedules
-Escalation
-Notification
-Redis
-Kafka
-Retry
-DLQ
-```
-
-Đây là người làm phần system design nặng nhất.
-
----
-
-## Member 4 — AI
-
-```text
-Spring AI
-RAG
-PGVector
-Tool Calling
-Incident Investigation Agent
-Triage Agent
-Postmortem Agent
-```
-
----
-
-## Member 5 — Automation / DevOps / Observability
-
-```text
-Runbook
-Automation
-CI/CD
-Docker
-AWS
-Prometheus
-Grafana
-OpenTelemetry
-Deployment integration
-```
-
----
-
-# 73. Frontend nên có những màn hình nào?
-
-## Dashboard
-
-```text
-Open Incidents
-P1
-P2
-MTTR
-MTTA
-Alert Noise
-Services
-```
-
-## Incidents
-
-```text
-All
-Triggered
-Acknowledged
-Resolved
-P1
-P2
-```
-
-## Incident Detail
-
-Đây là màn hình quan trọng nhất:
-
-```text
-┌──────────────────────────────────────────┐
-│ P1 Payment Service Outage                │
-│                                          │
-│ Status: ACKNOWLEDGED                     │
-│ Assignee: Alex                           │
-│ Service: Payment                         │
-│                                          │
-│ [Acknowledge] [Resolve] [Escalate]       │
-│                                          │
-│ AI Investigation                         │
-│ ─────────────────                        │
-│ Probable Cause: Database                 │
-│ Confidence: 87%                          │
-│                                          │
-│ Recommendations                          │
-│ [Rollback v1.42]                         │
-│                                          │
-│ Timeline                                 │
-│ 10:01 Alert                              │
-│ 10:02 Incident                           │
-│ 10:03 Notify Alex                        │
-│ ...                                      │
-└──────────────────────────────────────────┘
-```
-
----
-
-# 74. Service Detail
-
-```text
-Payment Service
-
-Status: Degraded
-
-Owner:
-Payment Team
-
-On Call:
-Alex
-
-Dependencies:
- ├── PostgreSQL
- ├── Redis
- └── Payment Gateway
-
-Open Incidents:
- 2
-
-Recent Deployments:
- v1.42
- v1.41
-```
-
----
-
-# 75. On-call UI
-
-Calendar:
-
-```text
-Mon     Tue     Wed     Thu     Fri
-Alex    John    Minh    Lan     Alex
-```
-
-Có:
-
-```text
-Create Schedule
-Add Member
-Swap Shift
-Override
-View Current On-call
-```
-
----
-
-# 76. Incident War Room
-
-```text
-┌──────────────────────────────────────────────┐
-│ P1 Payment Outage                            │
-├──────────────┬───────────────────────────────┤
-│ Responders   │ Timeline                      │
-│              │                               │
-│ Alex         │ 10:01 Alert                   │
-│ Minh         │ 10:02 Incident               │
-│ Lan          │ 10:03 AI Started             │
-│              │                               │
-├──────────────┴───────────────────────────────┤
-│ AI Investigation                             │
-│                                               │
-│ [Analyzing Logs...]                           │
-│ [Checking Deployments...]                     │
-│ [Checking Dependencies...]                    │
-│                                               │
-│ Result: DB connection exhaustion             │
-└───────────────────────────────────────────────┘
-```
-
-Đây sẽ là UI demo cực kỳ mạnh.
-
----
-
-# 77. Scope theo Phase
-
-Không làm tất cả cùng lúc.
-
-## Phase 1 — Foundation
-
-```text
-Auth
-RBAC
-Organization
-Team
-Service
-Incident
-Alert
-```
-
-Mục tiêu:
-
-```text
-event → alert → incident
-```
-
----
-
-# 78. Phase 2 — PagerDuty Core
-
-```text
-Integration
-Event ingestion
-Dedup
-Grouping
-Routing
-On-call
-Escalation
-Notification
-Timeline
-```
-
-Mục tiêu:
-
-```text
-event
- ↓
-incident
- ↓
-on-call
- ↓
-escalation
- ↓
-notification
-```
-
----
-
-# 79. Phase 3 — Advanced Operations
-
-```text
-Redis
-Kafka
-Retry
-DLQ
-Maintenance
-Runbooks
-Automation
-Status updates
-Incident collaboration
-```
-
----
-
-# 80. Phase 4 — AI
-
-```text
-RAG
-Knowledge Base
-Triage Agent
-Investigation Agent
-Postmortem Agent
-Tool Calling
-Human approval
-```
-
----
-
-# 81. Phase 5 — Production Engineering
-
-```text
-Docker
-CI/CD
-AWS
-Prometheus
-Grafana
-OpenTelemetry
-Load testing
-Security
-Rate limiting
-Audit
-```
-
----
-
-# 82. Priority matrix
-
-| Feature           | Priority               |
-| ----------------- | ---------------------- |
-| Auth/JWT          | 🔴 Must                |
-| RBAC              | 🔴 Must                |
-| Organization/Team | 🔴 Must                |
-| Service Directory | 🔴 Must                |
-| Event Ingestion   | 🔴 Must                |
-| Alert             | 🔴 Must                |
-| Dedup             | 🔴 Must                |
-| Incident          | 🔴 Must                |
-| On-call           | 🔴 Must                |
-| Escalation        | 🔴 Must                |
-| Notification      | 🔴 Must                |
-| Kafka             | 🟠 Should              |
-| Redis             | 🟠 Should              |
-| Rule Engine       | 🟠 Should              |
-| Runbook           | 🟠 Should              |
-| RAG               | 🔴 Must for AI version |
-| AI Investigation  | 🔴 Must                |
-| AI Triage         | 🟠 Should              |
-| AI Postmortem     | 🟠 Should              |
-| Automation        | 🟠 Should              |
-| Status Page       | 🟡 Nice                |
-| SLO               | 🟡 Nice                |
-| Mobile app        | 🟡 Nice                |
-| Multi-region      | ⚪ Skip                 |
-
----
-
-# 83. Những thứ KHÔNG nên làm
-
-Để tránh scope nổ tung, mình khuyên **không** làm:
-
-```text
-❌ Full monitoring system
-❌ Tự xây Prometheus
-❌ Tự xây log collector như ELK
-❌ Tự train ML model
-❌ Full Kubernetes operator
-❌ Full Terraform platform
-❌ Mobile app native
-❌ Multi-region HA
-❌ 20 microservices ngay từ đầu
-```
-
-Thay vào đó:
-
-```text
-Prometheus
-Grafana
-Kubernetes
-AWS
-GitHub Actions
-```
-
-được xem là **external integrations**.
-
----
-
-# 84. Phần nào sẽ thực sự gây ấn tượng trong CV?
-
-Không phải:
-
-```text
-Spring Boot
-PostgreSQL
-JWT
-Docker
-```
-
-vì quá phổ biến.
-
-Điểm mạnh của project sẽ là:
-
-### 1. Event-driven architecture
-
-```text
-Kafka
-```
-
-### 2. Incident orchestration
-
-```text
-Routing
-Dedup
-Grouping
-Escalation
-```
-
-### 3. Distributed reliability
-
-```text
-Idempotency
-Retry
-DLQ
-Distributed locking
-Rate limiting
-```
-
-### 4. AI agents
-
-```text
-Tool calling
-RAG
-Incident investigation
-Human-in-the-loop remediation
-```
-
-### 5. Production engineering
-
-```text
-Observability
-CI/CD
-Docker
-AWS
-```
-
----
-
-# 85. Một dòng CV có thể ghi
-
-Ví dụ sau khi project thực sự hoàn thành:
-
-> **NexusOps — AI-Powered Incident & Reliability Operations Platform**
-> Built an event-driven incident management platform using Java/Spring Boot, Kafka, PostgreSQL, Redis and Spring AI, implementing alert deduplication, rule-based event orchestration, on-call scheduling, escalation policies, multi-channel notifications, RAG-powered incident investigation, tool-calling AI agents and human-approved automated remediation.
-
-Đây sẽ **mạnh hơn rất nhiều** so với kiểu:
-
-> Built a Spring Boot CRUD application for managing incidents.
-
----
-
-# 86. Mức độ hoàn chỉnh mình khuyên nhóm hướng tới
-
-Nếu chia thành 3 mức:
-
-### Level 1 — CRUD project
-
-```text
-Auth
-Service
-Incident
-```
-
-**~4/10**
-
-### Level 2 — PagerDuty-like
-
-```text
-Event
-Alert
-Incident
-On-call
-Escalation
-Notification
-Kafka
-Redis
-```
-
-**~8.5/10**
-
-### Level 3 — AI Operations Platform
-
-```text
-Everything above
-+
-RAG
-+
-AI Investigation
-+
-Tool Calling
-+
-Automation
-+
-Human Approval
-+
-Observability
-+
-Postmortem
-```
-
-**~9.5/10**
-
-Mình khuyên nhóm nhắm **Level 3**, nhưng triển khai tuần tự qua Level 1 → 2 → 3, thay vì cố code tất cả ngay từ đầu.
-
----
-
-# 87. Kiến trúc cuối cùng
-
-```text
-                    ┌───────────────────────┐
-                    │ Monitoring / CI / K8s │
-                    └───────────┬───────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │   Event Ingestion     │
-                    │   REST / Webhook      │
-                    └───────────┬───────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │ Event Orchestration   │
-                    │ Routing / Suppression │
-                    │ Enrichment / Rules    │
-                    └───────────┬───────────┘
-                                │
-                         ┌──────┴──────┐
-                         ▼             ▼
-                      Suppress       Alert
-                                       │
-                             Dedup / Grouping
-                                       │
-                                       ▼
-                                  INCIDENT
-                                       │
-                     ┌─────────────────┼─────────────────┐
-                     ▼                 ▼                 ▼
-                 Escalation        Notification       AI Agent
-                     │                 │                 │
-                     ▼                 ▼                 ▼
-                 On-call          Email/WebSocket     RAG/Tools
-                                                         │
-                                                         ▼
-                                                  Investigation
-                                                         │
-                                              ┌──────────┴─────────┐
-                                              ▼                    ▼
-                                        Recommendation         Automation
-                                                                   │
-                                                              Human Approval
-                                                                   │
-                                                                   ▼
-                                                                Execute
-                                                                   │
-                                                                   ▼
-                                                               Resolve
-                                                                   │
-                                                                   ▼
-                                                            Postmortem/PIR
-                                                                   │
-                                                                   ▼
-                                                               Knowledge
-                                                                   │
-                                                                   ▼
-                                                               Analytics
-```
-
 ---
-
-# 88. Kết luận
-
-Nếu **theo hướng PagerDuty**, mình sẽ chốt product scope của nhóm như sau:
-
-> **NexusOps là một platform quản lý incident và reliability theo event-driven architecture, nhận event từ monitoring/CI systems, xử lý alert bằng deduplication/grouping/routing, tự động xác định responder qua on-call + escalation policy, điều phối incident response, cung cấp realtime collaboration, dùng AI agents để triage/investigate/summarize incidents, và thực hiện remediation có human approval.**
-
-Điểm quan trọng nhất là **đừng biến nó thành "Jira clone có AI"**. Core identity của sản phẩm phải là:
-
-**Event → Alert → Incident → On-call → Escalation → Investigation → Remediation → Postmortem.**
-
-Đó là hướng sát PagerDuty nhất, và cũng là hướng có nhiều thứ để thể hiện **Java Backend + Distributed System + AI + DevOps**.
 
-Các capability PagerDuty mình dùng làm baseline ở trên được lấy từ tài liệu sản phẩm/support hiện hành của PagerDuty, bao gồm Incident/Alert lifecycle, Escalation/On-call, Event Orchestration, Service Directory, Automation, AI Agents, Post-Incident Review và Status Pages. ([PagerDuty][2])
+## 7. Kịch bản Tham chiếu — Vòng đời một Sự cố P1
 
-[1]: https://www.pagerduty.com/platform/ai-agents/?utm_source=chatgpt.com "Enterprise AI Agents | PagerDuty"
-[2]: https://support.pagerduty.com/main/docs/alerts?utm_source=chatgpt.com "Alerts"
-[3]: https://support.pagerduty.com/main/docs/escalation-policies?utm_source=chatgpt.com "Escalation Policy Basics"
-[4]: https://support.pagerduty.com/main/docs/services-and-integrations?utm_source=chatgpt.com "Services and Integrations"
-[5]: https://support.pagerduty.com/main/docs/service-dependencies?utm_source=chatgpt.com "Service Dependencies"
-[6]: https://support.pagerduty.com/main/docs/alert-grouping?utm_source=chatgpt.com "Alert Grouping"
-[7]: https://support.pagerduty.com/main/docs/event-management?utm_source=chatgpt.com "Event Management"
-[8]: https://support.pagerduty.com/main/docs/event-orchestration?utm_source=chatgpt.com "Event Orchestration"
-[9]: https://support.pagerduty.com/main/docs/incidents?utm_source=chatgpt.com "Incidents"
-[10]: https://support.pagerduty.com/main/docs/escalation-policies-and-schedules?utm_source=chatgpt.com "Escalation Policies and Schedules"
-[11]: https://support.pagerduty.com/main/docs/edit-schedules?utm_source=chatgpt.com "Edit Schedules"
-[12]: https://support.pagerduty.com/main/docs/notification-rules?utm_source=chatgpt.com "Notification Rules"
-[13]: https://support.pagerduty.com/main/docs/conference-bridge?utm_source=chatgpt.com "Conference Bridge"
-[14]: https://www.pagerduty.com/platform/incident-management/stakeholder-communication/?utm_source=chatgpt.com "Stakeholder Communication | PagerDuty"
-[15]: https://support.pagerduty.com/main/docs/automation-actions?utm_source=chatgpt.com "PagerDuty Automation Actions"
-[16]: https://www.pagerduty.com/eng/inside-pagerdutys-sre-agent-how-we-built-deep-incident-investigation/?utm_source=chatgpt.com "Inside PagerDuty's SRE Agent: How We Built Deep Incident Investigation | PagerDuty"
-[17]: https://support.pagerduty.com/main/changelog?page=2&utm_source=chatgpt.com "Platform Release Notes"
-[18]: https://support.pagerduty.com/main/docs/post-incident-review-stages?utm_source=chatgpt.com "Post-Incident Review Stages"
-[19]: https://support.pagerduty.com/main/docs/event-analytics?utm_source=chatgpt.com "Event Analytics"
-[20]: https://www.pagerduty.com/platform/business-ops/status-pages/?utm_source=chatgpt.com "PagerDuty Status Pages | PagerDuty"
-[21]: https://support.pagerduty.com/main/docs/maintenance-windows?utm_source=chatgpt.com "Maintenance Windows"
+Kịch bản dưới đây theo dõi một **incident P1 (payment-service database outage)** từ đầu đến cuối, và là luồng tham chiếu nên dùng để kiểm chứng rằng ingestion, orchestration, escalation, AI investigation, và automation có human-gate được nối với nhau đúng đắn.
+
+```mermaid
+sequenceDiagram
+    participant PROM as Prometheus
+    participant ING as Event Ingestion
+    participant ORC as Orchestration Engine
+    participant DEDUP as Dedup / Grouping
+    participant INC as Incident Service
+    participant ESC as Escalation Worker
+    participant NOTIFY as Notification Worker
+    participant AI as AI Agent (Triage/Investigation)
+    participant RESP as On-call Responder
+    participant AUTO as Automation Worker
+
+    PROM->>ING: POST /api/v1/events (DB connection failures > threshold)
+    ING->>ORC: Publish EventReceived
+    ORC->>ORC: Evaluate rules (service=payment, severity=critical) -> P1
+    ORC->>DEDUP: Route event (dedupKey=payment-db-connection)
+    DEDUP->>INC: Create Alert + Incident INC-1001
+    par Escalation (independent timeout clock)
+        INC->>ESC: Publish IncidentCreated
+        ESC->>NOTIFY: Notify Payment Primary (Level 1)
+        NOTIFY->>RESP: Email / WebSocket / Slack alert
+    and AI Investigation (runs concurrently)
+        INC->>AI: Publish IncidentCreated
+        AI->>AI: Triage - check duplicates, related alerts, recent deploys
+        AI->>AI: Investigate - correlate DB failures + deploy v1.42 + past INC-884
+        AI->>INC: Post recommendation (Rollback v1.42, Risk = HIGH)
+    end
+    INC->>RESP: Request Human Approval for remediation
+    RESP->>INC: Approve
+    INC->>AUTO: AutomationApproved
+    AUTO->>AUTO: Execute rollback (payment-service v1.42 -> v1.41)
+    AUTO->>INC: AutomationExecuted
+    PROM->>ING: Recovery signal (connections normal)
+    INC->>INC: Status -> RESOLVED
+    INC->>AI: Request Postmortem
+    AI->>INC: Generate Post-Incident Review draft
+```
+
+Nếu responder acknowledge trước khi Level 1 escalation timeout, nhánh escalation tự dừng lại — nó không hề phụ thuộc vào việc nhánh AI đã hoàn tất hay chưa, và nhánh AI cũng không phụ thuộc vào việc escalation đã hoàn tất. Hai nhánh chỉ hội tụ tại **Human Approval Gate**, nơi responder đang acknowledge sẽ phê duyệt hành động remediation do AI đề xuất.
+
+---
+
+## 8. Lộ trình Triển khai theo Giai đoạn (Phased Implementation Plan)
+
+Nền tảng chủ động **không** được xây dựng thành 15 microservice ngay từ đầu. Nó được triển khai như một modular monolith, "kiếm" được các tầng event-driven và AI theo từng giai đoạn.
+
+### 8.1 Phase 1 — Foundation
+
+**Mục tiêu:** thiết lập chuỗi tối thiểu `event → alert → incident` chạy được đầu-cuối.
+
+| Hạng mục | Ghi chú |
+|---|---|
+| Auth & RBAC | JWT-based auth, phân cấp role |
+| Organization & Team | Cấu trúc sở hữu |
+| Service Directory | Bản ghi service cơ bản |
+| Incident & Alert core | CRUD + lifecycle, chưa có async processing |
+
+### 8.2 Phase 2 — PagerDuty Core
+
+**Mục tiêu:** đạt được sự tương đương chức năng với một sản phẩm incident management cơ bản.
+
+| Hạng mục | Ghi chú |
+|---|---|
+| Integration & Event Ingestion | Events API, integration key |
+| Dedup, Grouping, Routing | Rule engine v1 |
+| On-call Scheduling | Rotation, override |
+| Escalation & Notification | Policy nhiều level, gửi đa kênh |
+
+### 8.3 Phase 3 — Advanced Reliability
+
+**Mục tiêu:** đưa vào xương sống distributed-systems và chiều sâu vận hành.
+
+| Hạng mục | Ghi chú |
+|---|---|
+| Kafka event bus | Thay thế xử lý đồng bộ |
+| Redis reliability patterns | Idempotency, distributed locking, rate limiting |
+| Retry / DLQ | Tăng độ tin cậy cho notification delivery |
+| Maintenance windows, Runbooks | Suppression + các automation action đầu tiên |
+| Incident collaboration | War room, status update |
+
+### 8.4 Phase 4 — AI Operations
+
+**Mục tiêu:** đưa ra điểm khác biệt cốt lõi của nền tảng.
+
+| Hạng mục | Ghi chú |
+|---|---|
+| Knowledge base & RAG | Retrieval dựa trên PGVector |
+| Triage & Investigation Agents | Tool-calling trên dữ liệu platform |
+| Postmortem / Scribe Agent | Tự động soạn thảo PIR |
+| Human Approval Gate | Automation phân loại theo rủi ro |
+
+### 8.5 Phase 5 — Production Engineering
+
+**Mục tiêu:** đảm bảo nền tảng vận hành được và đáng tin cậy ở chính bản thân nó.
+
+| Hạng mục | Ghi chú |
+|---|---|
+| CI/CD, Docker, AWS deployment | |
+| Observability | Prometheus, Grafana, OpenTelemetry |
+| Security hardening | Rate limiting, phủ audit log đầy đủ |
+| Load testing | Kiểm chứng ngưỡng throughput ingestion |
+
+### 8.6 Ma trận Ưu tiên
+
+| Tính năng | Ưu tiên |
+|---|---|
+| Auth / JWT, RBAC, Organization/Team | Must |
+| Service Directory, Event Ingestion, Alerting, Dedup | Must |
+| Incident, On-call, Escalation, Notification | Must |
+| Kafka, Redis, Rule Engine, Runbooks | Should |
+| RAG, AI Investigation | Must (đối với bản phát hành có AI) |
+| AI Triage, AI Postmortem, Automation | Should |
+| Status Page, SLO | Nice to have |
+| Mobile app, Multi-region HA | Ngoài phạm vi |
+
+### 8.7 Các Hạng mục Ngoài phạm vi
+
+Để giữ nguồn lực triển khai tập trung vào điểm khác biệt cốt lõi của NexusOps, các hạng mục sau được xem là **external integration, không phải mục tiêu tự xây**: một hệ thống observability đầy đủ (tự xây Prometheus/log collector riêng), một mô hình ML tự huấn luyện, một Kubernetes operator đầy đủ, một nền tảng provisioning dựa trên Terraform đầy đủ, một ứng dụng mobile native, và khả năng multi-region high availability. Prometheus, Grafana, Kubernetes, AWS và GitHub Actions được sử dụng như các hệ thống bên ngoài mà nền tảng tích hợp vào, không phải các hệ thống cần xây lại.
