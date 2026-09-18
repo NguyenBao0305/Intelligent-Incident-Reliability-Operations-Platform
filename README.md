@@ -972,6 +972,103 @@ stateDiagram-v2
 
 > **Lưu ý:** cạnh `IN_REVIEW → DRAFT` ở sơ đồ PIR là bổ sung hợp lý ngoài mô tả gốc ở §3.5 (vốn chỉ liệt kê chuỗi trạng thái tiến thẳng `DRAFT → IN_REVIEW → APPROVED → COMPLETED`), phản ánh thực tế review thường yêu cầu chỉnh sửa lại bản nháp trước khi duyệt.
 
+**4.7.5 Sequence Diagram — Event Ingestion (UC-07): Rate Limiting & Idempotency**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MON as Monitoring System
+    participant ING as Event Ingestion API
+    participant RL as Redis (Rate Limiter)
+    participant CACHE as Redis (Idempotency Cache)
+    participant PG as PostgreSQL (idempotency_keys)
+    participant BUS as Kafka
+
+    MON->>ING: POST /api/v1/events<br/>Idempotency-Key: X, dedupKey: Y
+
+    ING->>RL: INCR token bucket (integrationId)
+    alt Vượt rate limit (>100 req/s)
+        RL-->>ING: Từ chối
+        ING-->>MON: 429 Too Many Requests
+    else Trong hạn mức
+        ING->>CACHE: GET idempotency:X (fast-path)
+        alt Cache hit
+            CACHE-->>ING: response đã lưu
+            ING-->>MON: 200 OK (kết quả cũ, không xử lý lại)
+        else Cache miss
+            ING->>PG: INSERT idempotency_keys (key=X) ON CONFLICT DO NOTHING
+            alt Conflict — key đã tồn tại (race giữa 2 request đồng thời)
+                PG-->>ING: trả về response_body đã lưu
+                ING->>CACHE: SET idempotency:X (đồng bộ lại cache)
+                ING-->>MON: 200 OK (kết quả cũ)
+            else Không conflict — event mới
+                ING->>ING: Xử lý event, sinh response
+                ING->>PG: UPDATE idempotency_keys SET response_body
+                ING->>CACHE: SET idempotency:X (TTL chỉ để dọn rác)
+                ING->>BUS: Publish EventReceived (partition theo serviceId)
+                ING-->>MON: 200 OK (event mới, đã nhận)
+            end
+        end
+    end
+```
+*Ý nghĩa:* đây là con đường lưu lượng cao nhất hệ thống — mọi bug ở đây nhân lên theo throughput ingestion. Sơ đồ dựng đúng nguyên tắc "Redis là fast-path, PostgreSQL là nguồn chân lý" đã fix ở §2.6: `ON CONFLICT DO NOTHING` xử lý đúng cả trường hợp hai request trùng `Idempotency-Key` đến gần như đồng thời (race condition ở chính bước ghi DB, không chỉ ở bước đọc cache).
+
+**4.7.6 Decision Flow — Dedup Key Lifecycle (UC-09)**
+
+```mermaid
+flowchart TD
+    START(["Event đã qua Orchestration,<br/>không bị suppress"]) --> CHECK{"Tồn tại Alert nào<br/>cùng service_id + dedup_key<br/>VÀ status ≠ RESOLVED?"}
+
+    CHECK -->|"Có — alert đang mở"| MERGE["Gộp event vào Alert đang mở<br/>Publish AlertDeduplicated"]
+    CHECK -->|"Không — chưa từng có,<br/>HOẶC alert cùng key đã RESOLVED"| CREATE["Tạo Alert mới<br/>(unique index uniq_open_dedup)<br/>Publish AlertCreated"]
+
+    MERGE --> GROUP_CHECK{"Có alert khác cùng<br/>thời điểm/service liên quan?"}
+    CREATE --> GROUP_CHECK
+
+    GROUP_CHECK -->|"Có"| GROUP["Gộp nhóm (Alert Group)<br/>Publish AlertGrouped"]
+    GROUP_CHECK -->|"Không"| DONE(["Sẵn sàng cho Incident Management (UC-10)"])
+    GROUP --> DONE
+
+    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef action fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef terminal fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    class CHECK,GROUP_CHECK decision
+    class MERGE,CREATE,GROUP action
+    class START,DONE terminal
+```
+*Ý nghĩa:* trực quan hoá đúng fix N1 (đợt audit) — nhánh "chưa từng có" và nhánh "cũ đã RESOLVED" trông khác nhau về mặt dữ liệu nhưng phải dẫn tới **cùng một hành động** (tạo alert mới). Đây chính là lỗi logic ban đầu tài liệu mắc phải (coi 2 trường hợp này khác nhau, dẫn tới sự cố lặp lại bị gộp nhầm vào alert cũ).
+
+**4.7.7 Sequence Diagram — AI Tool-Calling Loop (UC-22/UC-23, mô hình ReAct)**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant INC as Incident Service
+    participant AGENT as AI Agent (LLM Orchestrator)
+    participant TOOLS as Tool Registry
+    participant DATA as Platform Data<br/>(getAlerts, getLogs, getMetrics,<br/>getRecentDeployments, getDependencies)
+    participant KB as Knowledge Base (RAG / PGVector)
+
+    INC->>AGENT: IncidentCreated (context ban đầu: service, severity, alerts)
+    AGENT->>AGENT: Lập kế hoạch — cần thông tin gì để chẩn đoán?
+
+    loop Tối đa N vòng lặp tool-calling
+        AGENT->>TOOLS: Chọn tool phù hợp (ví dụ getRecentDeployments)
+        TOOLS->>DATA: Gọi tool tương ứng
+        DATA-->>TOOLS: Kết quả (ví dụ: deploy v1.42, 10 phút trước)
+        TOOLS-->>AGENT: Trả kết quả cho LLM
+        AGENT->>AGENT: Đánh giá đủ bằng chứng chưa?<br/>Ghi lại vào ai_tool_calls
+    end
+
+    AGENT->>KB: searchPastIncidents / searchKnowledge (RAG)
+    KB-->>AGENT: Top-k incident/runbook tương tự + độ liên quan
+
+    AGENT->>AGENT: Tổng hợp hypothesis + confidenceScore<br/>+ đề xuất remediation + riskLevel
+    AGENT->>INC: INSERT ai_investigations (hypothesis, confidenceScore, evidence refs)
+    AGENT->>INC: Post recommendation (→ tiếp nối ở sơ đồ 4.7.1)
+```
+*Ý nghĩa:* thể hiện đúng bản chất "AI Agent Platform" như §1.1 mô tả — không phải một lệnh gọi LLM đơn lẻ, mà một vòng lặp tool-calling nhiều bước, mỗi bước được ghi vào `ai_tool_calls` để phục vụ audit trail (khớp entity đã thêm ở ERD §5.3 sau fix N6). Sơ đồ này là tiền đề của sơ đồ 4.7.1 — điểm nối là bước cuối "Post recommendation".
+
 ---
 
 ## 5. Mô hình Dữ liệu (Database Schema)
