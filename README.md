@@ -7,7 +7,7 @@
 | **Loại tài liệu** | Software Project Plan & Architecture Document |
 | **Kiến trúc** | Event-driven, modular-monolith-first |
 | **Stack chính** | Java (Spring Boot), Apache **Kafka**, PostgreSQL (+ PGVector), Redis |
-| **Trạng thái** | Draft v1.1 |
+| **Trạng thái** | Draft v1.2 — đã áp dụng kết quả kiểm toán kỹ thuật (technical audit) |
 | **Đối tượng đọc** | Đội ngũ kỹ thuật, technical stakeholders, ban giám khảo/reviewer |
 
 ---
@@ -71,6 +71,10 @@ NexusOps được xây dựng theo **event-driven architecture**: mọi thay đ�
 
 Về mặt triển khai, hệ thống khởi đầu như một **modular monolith** (Spring Boot, một deployable duy nhất, các package tách biệt rõ ràng theo từng bounded module), và chỉ đưa Kafka-based asynchronous processing vào khi vòng đời incident lõi đã ổn định. Việc tách service khỏi monolith chỉ thực hiện khi một module thực sự có scaling/reliability profile khác biệt — không tách theo mặc định.
 
+> **Lưu ý kiến trúc (audit finding).** "Modular monolith" chỉ mô tả ranh giới **codebase**, không có nghĩa toàn bộ hệ thống phải chạy trong **một process** duy nhất. Kể từ Phase 3 (khi Kafka consumer được đưa vào), các worker bất đồng bộ (Escalation Worker, Notification Worker, AI Agent Worker, Automation Worker) được build và triển khai như một **process/deployable riêng** (cùng repository, khác entrypoint/Spring profile — ví dụ `nexusops-api` và `nexusops-worker`) tách khỏi REST API ingestion. Lý do: nếu cả hai chạy chung một JVM, một đợt burst escalation/notification trong lúc xảy ra outage lớn có thể ăn hết resource của chính API ingestion đang nhận event — tức nền tảng incident management "tự làm nghẽn chính mình" đúng lúc cần nó nhất. Tách process không vi phạm nguyên tắc modular-monolith (không tách *service*, không tách *database*), chỉ tách *runtime*.
+
+Về schema migration, mọi thay đổi cấu trúc bảng qua các phase (ví dụ thêm bảng `ai_investigations` ở Phase 4) đều được quản lý bằng **Flyway** (hoặc Liquibase), versioned theo từng migration script, để đảm bảo khả năng rollback và nhất quán giữa các môi trường.
+
 ### 2.2 Sơ đồ Kiến trúc Tổng thể
 
 ```mermaid
@@ -130,6 +134,8 @@ Kafka là system of record cho việc phối hợp giữa các module. Các doma
 | Automation | `AutomationRequested`, `AutomationApproved`, `AutomationExecuted` |
 | Governance | `PIRCreated` |
 
+**Partitioning strategy.** Mọi topic liên quan tới một incident cụ thể (`IncidentCreated`, `IncidentEscalated`, `IncidentResolved`, `AutomationRequested`,...) được partition theo key `incidentId`. Điều này đảm bảo **ordering** trong phạm vi một incident (event của cùng một incident luôn được một consumer xử lý tuần tự, đúng thứ tự) trong khi vẫn scale ngang được giữa các incident khác nhau. Topic `EventReceived` (trước khi có incident) được partition theo `serviceId`.
+
 ### 2.5 Distributed State — Redis
 
 Redis phục vụ mọi loại trạng thái cần được chia sẻ, truy xuất nhanh và tồn tại ngắn hạn giữa các worker instance chạy song song:
@@ -137,26 +143,67 @@ Redis phục vụ mọi loại trạng thái cần được chia sẻ, truy xu�
 | Use case | Mục đích |
 |---|---|
 | Rate limiting | Bộ đếm token-bucket theo từng integration/service |
-| Idempotency cache | Lưu kết quả của một `Idempotency-Key` đã xử lý trước đó |
-| Dedup keys | Tra cứu nhanh `dedup:<key>` để xác định event có map vào alert đã tồn tại hay không |
-| Distributed locks | Ngăn hai worker cùng thao tác trên một incident đồng thời |
+| Idempotency cache | Fast-path cache cho kết quả của một `Idempotency-Key` đã xử lý trước đó (nguồn chân lý thực sự là unique constraint ở PostgreSQL — xem §2.6) |
+| Dedup keys | Tra cứu nhanh `dedup:<key>` để xác định event có map vào alert đang mở hay không; key được `DEL` ngay khi alert `RESOLVED` (không chỉ dựa TTL — xem §2.6) |
+| Distributed locks | Ngăn hai worker cùng thao tác trên một incident đồng thời; TTL ngắn (≤5s) kèm fencing token, không dùng làm nguồn đúng-sai duy nhất (xem §2.6) |
 | On-call cache | Tra cứu responder hiện tại mà không cần gọi lại schedule engine mỗi lần page |
 | Escalation scheduler | Theo dõi các escalation timeout đang chờ mà không giữ một HTTP connection mở |
 | AI session state | Context ngắn hạn cho một phiên investigation của agent đang chạy |
 
 ### 2.6 Các Pattern Reliability trong Hệ thống Phân tán
 
-Bốn pattern dưới đây được xem là yêu cầu kiến trúc bắt buộc, không phải phần "hardening thêm nếu còn thời gian":
+Các pattern dưới đây được xem là yêu cầu kiến trúc bắt buộc, không phải phần "hardening thêm nếu còn thời gian". Đây cũng là phần được cập nhật trực tiếp từ kết quả kiểm toán kỹ thuật (technical audit) — mỗi mục đều nêu rõ **nguồn chân lý (source of truth)** thay vì chỉ dựa vào Redis như một lớp cache có thể mất dữ liệu.
 
-**Idempotency.** Hệ thống monitoring thường xuyên gửi lại cùng một event (do retry mạng, at-least-once delivery). Mọi lời gọi `POST /api/v1/events` đều chấp nhận header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain); nếu cùng một key được gửi lại, platform trả về kết quả đã tính trước đó thay vì tạo alert thứ hai. Điều này đảm bảo `1 event → 1 effect`.
+**Idempotency.** Hệ thống monitoring thường xuyên gửi lại cùng một event (do retry mạng, at-least-once delivery). Mọi lời gọi `POST /api/v1/events` đều chấp nhận header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain). Redis chỉ đóng vai trò **fast-path cache**; nguồn chân lý thực sự là một unique constraint ở PostgreSQL, để tránh trường hợp Redis evict key (do memory pressure) trước khi client retry, dẫn tới tạo alert trùng:
 
-**Distributed Locking (Redis).** Vì escalation timeout và AI worker chạy dưới dạng các consumer độc lập, scale ngang, hai worker có thể xảy ra race condition khi cùng escalate hoặc acknowledge một incident (`INC-123`) tại cùng thời điểm. Một distributed lock dựa trên Redis (hoặc optimistic locking bằng cột `version` trên bảng incident) đảm bảo chỉ một worker được thay đổi trạng thái escalation của một incident tại một thời điểm.
+```sql
+CREATE TABLE idempotency_keys (
+  key             VARCHAR(255) PRIMARY KEY,
+  request_hash    VARCHAR(64) NOT NULL,   -- SHA-256 của body, phát hiện key bị tái sử dụng sai
+  response_body   JSONB NOT NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT now()
+);
+```
+Luồng xử lý: `INSERT ... ON CONFLICT (key) DO NOTHING` → nếu conflict, đọc lại `response_body` đã lưu và trả về nguyên vẹn (không xử lý lại). Redis chỉ cache kết quả của bảng này để giảm round-trip tới DB ở tải cao.
+
+**Vòng đời Dedup Key.** Vấn đề: nếu `dedupKey` không bao giờ hết hiệu lực, một sự cố lặp lại **sau khi alert cũ đã `RESOLVED`** sẽ bị gộp nhầm vào alert cũ — không tạo incident mới, không ai được page. Ràng buộc uniqueness cho dedup **chỉ áp dụng cho alert đang mở**, không áp dụng vĩnh viễn:
+
+```sql
+CREATE UNIQUE INDEX uniq_open_dedup
+  ON alerts (service_id, dedup_key)
+  WHERE status <> 'RESOLVED';
+```
+Ở tầng Redis: `SET dedup:<key> <alertId>` khi tạo alert; `DEL dedup:<key>` ngay khi alert chuyển `RESOLVED` (consumer riêng lắng nghe `AlertResolved`); TTL 72h chỉ để dọn rác, **không phải cơ chế reset chính**.
+
+**Distributed Locking & Fencing Token.** Redis lock kiểu `SETNX`/Redlock có lỗ hổng đã biết: nếu một worker bị GC-pause hoặc network delay vượt quá TTL của lock, lock tự hết hạn và một worker khác chiếm lock trong khi worker cũ vẫn tưởng mình còn giữ quyền ghi — dẫn tới hai worker cùng ghi đè. Vì vậy Redis lock **chỉ dùng để giảm tranh chấp** (tối ưu hiệu năng), còn **nguồn đúng-sai bắt buộc là optimistic locking bằng cột `version` ở PostgreSQL** (đóng vai trò fencing token thật sự):
+
+```sql
+UPDATE incidents
+SET escalation_level = escalation_level + 1, version = version + 1
+WHERE id = :incidentId AND version = :expectedVersion AND status = 'TRIGGERED';
+-- affected rows = 0  =>  một worker/hành động khác đã xử lý trước, tự bỏ qua (không throw lỗi)
+```
+
+**An toàn giữa Escalation (hệ thống) và Acknowledge (con người).** Đây là race condition dễ bị bỏ sót nhất: responder ACK đúng lúc Escalation Worker đang fire timeout cho cùng incident. Nếu worker chỉ kiểm tra trạng thái *tại thời điểm lên lịch* mà không re-check *tại thời điểm gửi*, incident vẫn bị escalate/page thêm dù vừa được ACK. Escalation Worker **luôn phải re-fetch và re-validate trạng thái ngay trước khi gửi notification**, trong cùng transaction với câu `UPDATE ... WHERE version = :expectedVersion` ở trên — không escalate dựa trên trạng thái đã đọc từ lúc lên lịch job.
+
+**Automation Circuit Breaker & Rate Limiting.** Một action tự động (kể cả `LOW`-risk đã pre-authorize) có thể bị trigger lặp lại liên tục nếu điều kiện gây lỗi cứ tái diễn — đây là nguyên nhân đã gây ra nhiều outage lớn trên thực tế do automation tự khuếch đại sự cố (flapping loop). Mọi lần thực thi được đếm theo cửa sổ thời gian trượt:
+
+```sql
+CREATE TABLE automation_rate_limits (
+  service_id       UUID,
+  runbook_id       UUID,
+  window_start     TIMESTAMP,
+  execution_count  INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (service_id, runbook_id, window_start)
+);
+```
+Nếu `execution_count` trong 15 phút gần nhất vượt ngưỡng (mặc định: 2 lần) → hệ thống **buộc chuyển sang Human Approval Gate bất kể `riskLevel` gốc**, kể cả với action đã được pre-authorize.
 
 **Retry & Dead Letter Queue (Kafka).** Việc gửi tới một kênh bên ngoài (email, SMS, chat) có thể thất bại tạm thời. Notification thất bại được retry qua topic `notification.retry` với cơ chế backoff; sau khi hết retry budget, message được chuyển sang `notification.dlq` để kiểm tra thủ công thay vì bị âm thầm loại bỏ.
 
-**Rate Limiting.** Một integration hoạt động sai (gửi hàng nghìn event/giây) không được phép làm suy giảm hiệu năng toàn hệ thống. Một Redis token-bucket limiter áp mức trần theo từng integration/service (ví dụ 100 request/giây) ngay tại biên ingestion.
+**Rate Limiting (Ingestion).** Một integration hoạt động sai (gửi hàng nghìn event/giây) không được phép làm suy giảm hiệu năng toàn hệ thống. Một Redis token-bucket limiter áp mức trần theo từng integration/service (ví dụ 100 request/giây) ngay tại biên ingestion.
 
-> **Ghi chú thiết kế — không có mâu thuẫn giữa Escalation, AI và Human Approval.** Escalation chỉ có một mục tiêu duy nhất: *đưa được một con người vào xử lý* trong một khoảng thời gian giới hạn (chuỗi paging, độc lập với AI). AI Triage và AI Investigation chạy **song song** với escalation, không thay thế escalation — chúng tăng tốc chẩn đoán trong khi đồng hồ timeout của paging vẫn chạy độc lập. **Human Approval Gate** chỉ áp dụng cho các *hành động remediation* do AI đề xuất và được phân loại rủi ro cao; nó không thay thế cho escalation, và không tạm dừng hay chặn escalation timer. Người phê duyệt là responder đang được assign hoặc Incident Commander, được xác định qua cùng một permission RBAC (`AUTOMATION_EXECUTE`) dùng xuyên suốt nền tảng.
+> **Ghi chú thiết kế — không có mâu thuẫn giữa Escalation, AI và Human Approval.** Escalation chỉ có một mục tiêu duy nhất: *đưa được một con người vào xử lý* trong một khoảng thời gian giới hạn (chuỗi paging, độc lập với AI). AI Triage và AI Investigation chạy **song song** với escalation, không thay thế escalation — chúng tăng tốc chẩn đoán trong khi đồng hồ timeout của paging vẫn chạy độc lập (và luôn được re-validate ngay trước khi fire, như mô tả ở trên). **Human Approval Gate** chỉ áp dụng cho các *hành động remediation* do AI đề xuất và được phân loại rủi ro cao (bao gồm cả trường hợp bị nâng risk do vi phạm circuit breaker ở trên); nó không thay thế cho escalation, và không tạm dừng hay chặn escalation timer. Người phê duyệt là responder đang được assign hoặc Incident Commander, được xác định qua cùng một permission RBAC (`AUTOMATION_EXECUTE`) dùng xuyên suốt nền tảng. Với action `LOW`-risk, "đã có sự cho phép của con người" nghĩa là một **chính sách được con người cấu hình từ trước** (pre-authorization ở cấp runbook), không phải approval per-instance — hai hình thức phê duyệt này được phân biệt rõ ở §3.4.
 
 ---
 
@@ -196,11 +243,11 @@ Bao gồm authentication, authorization, và cấu trúc tổ chức mà mọi m
 
 Phần lõi vận hành: biến noise thành một incident đã được định tuyến, có thể hành động, và được phối hợp xử lý.
 
-- **Alert Management.** Bao gồm **deduplication** (các tín hiệu lặp lại cùng `dedupKey` gộp vào một alert), **grouping** (rule engine hoặc AI heuristic gom các alert liên quan nhưng khác nhau — ví dụ lỗi database, API latency cao, payment timeout — vào cùng một incident), và **suppression** (alert phát sinh trong lúc deploy hoặc trong maintenance window vẫn được lưu lại phục vụ forensic nhưng không tạo incident hay notification).
+- **Alert Management.** Bao gồm **deduplication** (các tín hiệu lặp lại cùng `dedupKey` gộp vào một alert đang mở — xem vòng đời dedup key ở §2.6), **grouping** (rule engine hoặc AI heuristic gom các alert liên quan nhưng khác nhau — ví dụ lỗi database, API latency cao, payment timeout — vào cùng một incident), **suppression** (alert phát sinh trong lúc deploy hoặc trong maintenance window vẫn được lưu lại phục vụ forensic nhưng không tạo incident hay notification), và **auto-resolve** (một event loại `RESOLVE` mang cùng `dedupKey` — ví dụ CPU quay về ngưỡng bình thường — tự động chuyển alert đang mở sang `RESOLVED`, không cần responder thao tác thủ công; đây là bổ sung so với luồng resolve thủ công mô tả ở UC-19).
 - **Event Orchestration / Rule Engine.** Một engine `IF condition THEN action` có thể cấu hình, đánh giá trên mỗi event đầu vào. Condition kết hợp các field (`service`, `severity`, `environment`, `event.count`) với operator (`EQUALS`, `CONTAINS`, `GREATER_THAN`, `IN`,...); action gồm `ROUTE`, `SUPPRESS`, `SET_PRIORITY`, `CREATE_INCIDENT`, `TRIGGER_WORKFLOW`. Đây là cơ chế chính chuyển noise từ monitoring thành quyết định định tuyến nhất quán, có thể audit.
 - **Incident Management.** Bản ghi Incident (`TRIGGERED → ACKNOWLEDGED → RESOLVED`) theo dõi assignee, priority, severity, và toàn bộ timeline dạng `IncidentEvent`. Acknowledge một incident sẽ dừng escalation nhưng không đóng incident — resolve là một hành động riêng, tường minh.
 - **On-Call Scheduling.** Schedule hỗ trợ các loại rotation (`DAILY`, `WEEKLY`, `CUSTOM`), nhiều layer coverage (Primary/Secondary), và override có giới hạn thời gian cho các trường hợp vắng mặt đã lên kế hoạch — được resolve tại thời điểm truy vấn qua `GET /schedules/{id}/on-call`.
-- **Escalation Management.** Một `EscalationPolicy` là một danh sách level có thứ tự, mỗi level có target responder (user, schedule, hoặc team) và một timeout. Nếu một level không acknowledge trong thời gian timeout, incident tự động escalate sang level tiếp theo. Vì giữ một HTTP request mở trong 10 phút là không khả thi, việc theo dõi thời gian escalation được triển khai bằng **Kafka event + scheduled job trên Redis**, không phải chờ đồng bộ (xem §2.6).
+- **Escalation Management.** Một `EscalationPolicy` là một danh sách level có thứ tự; mỗi level có thể nhắm tới **nhiều target song song** (ví dụ page cả Primary lẫn Secondary cùng lúc ở Level 1, không giới hạn một target/level), và hỗ trợ **re-notify** (gửi lại thông báo 1-2 lần trong cùng level trước khi thật sự escalate sang level kế tiếp, theo `repeatCount`/`repeatIntervalMinutes`) — tương đương chuẩn PagerDuty/Opsgenie. Nếu một level không acknowledge trong thời gian timeout, incident tự động escalate sang level tiếp theo. Vì giữ một HTTP request mở trong 10 phút là không khả thi, việc theo dõi thời gian escalation cần một cơ chế lên lịch bất đồng bộ: ở **Phase 1–2** (chưa có Kafka/Redis), dùng DB polling đơn giản (`SELECT ... FOR UPDATE SKIP LOCKED` theo cột `escalate_at`, chạy bởi `@Scheduled` job); từ **Phase 3** trở đi, nâng cấp sang **Kafka event + scheduled job trên Redis** để chịu tải cao hơn (xem §2.6 và §8.2–8.3). Dù dùng cơ chế nào, escalation luôn phải re-validate trạng thái incident ngay trước khi fire (xem §2.6) để tránh escalate một incident vừa được acknowledge.
 - **Notification.** Gửi đa kênh (email, in-app, WebSocket cho MVP; Slack/Telegram/Discord/SMS cho các tier nâng cao), được điều khiển bởi `NotificationRule` theo từng user (ví dụ: *P1 → email ngay lập tức, +1 phút Telegram, +3 phút SMS*). Việc gửi luôn bất đồng bộ — request tạo incident chỉ publish lên Kafka; một Notification Consumer riêng thực hiện việc gửi thực sự, kèm retry/DLQ như mô tả ở §2.6.
 - **Incident Response & Collaboration.** Với các incident lớn, NexusOps hỗ trợ các role tường minh (Incident Commander, Technical Lead, Communications Lead, Scribe, Responder), một **Incident War Room** thời gian thực (chat, timeline, AI panel, service graph chạy trên WebSocket/SSE), và các status update hướng tới stakeholder mà họ có thể subscribe độc lập với nhóm responder.
 
@@ -208,8 +255,16 @@ Phần lõi vận hành: biến noise thành một incident đã được địn
 
 Điểm khác biệt cốt lõi của nền tảng: AI agent vận hành có quyền dùng tool, được kiểm soát bởi con người.
 
-- **Automation / Runbooks.** Một `Runbook` là một hành động vận hành có tên, có version (restart service, clear cache, scale deployment, rollback), được gắn nhãn `riskLevel` và cờ `requiresApproval`. Runbook có thể được kích hoạt thủ công, từ rule của event orchestration, hoặc từ đề xuất của AI.
-- **Human Approval Gate.** Không một hành động nào do AI khởi xướng và có ảnh hưởng tới production được thực thi mà không có sự cho phép tường minh. Mọi request automation đều mang một phân loại rủi ro; các hành động `HIGH`-risk (ví dụ rollback) bị chặn lại chờ human approval, trong khi các hành động `LOW`-risk, đã được hiểu rõ có thể được pre-authorize theo chính sách runbook.
+- **Automation / Runbooks.** Một `Runbook` là một hành động vận hành có tên, có version (restart service, clear cache, scale deployment, rollback), được gắn nhãn `riskLevel` **tĩnh** (base risk của loại hành động) và cờ `requiresApproval` (override thủ công do Team Manager đặt — ví dụ "runbook này luôn cần approval vì đụng tới payment ledger", bất kể risk tính toán được). Runbook có thể được kích hoạt thủ công, từ rule của event orchestration, hoặc từ đề xuất của AI — nhưng luôn đi qua bộ đếm Automation Circuit Breaker ở §2.6 trước khi thực thi. Điều kiện bắt buộc approval per-instance là: **`runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH`** (hai điều kiện độc lập, chỉ cần một đúng).
+- **Human Approval Gate.** Không một hành động nào do AI khởi xướng và có ảnh hưởng tới production được thực thi mà không có sự cho phép của con người — dưới một trong hai hình thức: **(a)** approval per-instance, tường minh, do responder/Incident Commander xác nhận tại thời điểm xảy ra (bắt buộc với action `HIGH`-risk); hoặc **(b)** pre-authorization theo chính sách, do Team Manager cấu hình từ trước ở cấp runbook (chỉ áp dụng cho action `LOW`-risk, đã hiểu rõ hệ quả). Risk mức **hiệu lực** (`effectiveRiskLevel`) không chỉ lấy từ `riskLevel` tĩnh của runbook mà còn được nâng cấp động theo ngữ cảnh:
+  ```
+  effectiveRiskLevel = max(
+    runbook.riskLevel,                                  // rủi ro tĩnh của loại hành động
+    riskFromServiceCriticality(service.criticality),     // MAJOR_INCIDENT-tier service -> nâng risk
+    circuitBreakerPenalty(service, runbook, window=15m)   // lặp lại nhiều lần -> ép về HIGH
+  )
+  ```
+  Bất kỳ yếu tố nào nâng `effectiveRiskLevel` lên `HIGH` đều bắt buộc chuyển sang approval per-instance (a), kể cả khi runbook gốc đã được pre-authorize.
 - **Knowledge Base & RAG.** Runbook, tài liệu kiến trúc, hướng dẫn troubleshooting, và các incident cũ được chunk, embed và lưu trong **PGVector**, cho phép retrieval-augmented generation: một truy vấn investigation sẽ kéo về các tài liệu và incident lịch sử liên quan nhất làm context nền trước khi LLM suy luận.
 - **AI Agent Platform.** Thay vì một chat assistant đa năng duy nhất, NexusOps triển khai một tập hợp **agent chuyên biệt**, mỗi agent gắn với một giai đoạn của vòng đời incident và được trang bị **tool calling** trên dữ liệu của chính platform (`getIncident`, `getAlerts`, `getDependencies`, `getRecentDeployments`, `getLogs`, `getMetrics`, `searchKnowledge`, `searchPastIncidents`, `runDiagnostic`,...), để LLM tự quyết định cần gọi tool nào thay vì phụ thuộc vào một prompt cố định duy nhất.
 
@@ -222,15 +277,15 @@ Phần lõi vận hành: biến noise thành một incident đã được địn
   | Knowledge Agent | Trả lời câu hỏi "làm sao để khôi phục X?" bằng RAG trên runbook và incident cũ | Không |
   | On-call Assistant | Trả lời câu hỏi "ai đang on-call cho X?" bằng cách resolve service → escalation policy → schedule đang active | Không |
 
-  Chỉ **Automation Worker** — hoạt động sau khi đã có human approval tường minh — mới được phép thực thi một hành động làm thay đổi trạng thái hệ thống production.
+  Chỉ **Automation Worker** — hoạt động sau khi điều kiện approval ở §3.4 (per-instance hoặc pre-authorization theo chính sách) đã được thoả mãn — mới được phép thực thi một hành động làm thay đổi trạng thái hệ thống production.
 
 ### 3.5 Reliability Engineering & Governance
 
 Khép lại vòng lặp từ resolution đến việc học hỏi của tổ chức, đồng thời cung cấp tầng quan sát vận hành cho cả kỹ sư lẫn stakeholder.
 
 - **Post-Incident Review.** Mỗi incident đã resolve tạo ra một `PostIncidentReview` (summary, root cause, impact, timeline, các yếu tố góp phần, và action item được phân loại — `BUG_FIX`, `INFRASTRUCTURE`, `MONITORING`, `PROCESS`, `DOCUMENTATION`, `SECURITY`), đi qua các trạng thái `DRAFT → IN_REVIEW → APPROVED → COMPLETED`.
-- **Analytics & Reliability Metrics.** Các KPI reliability tiêu chuẩn được tính trực tiếp từ timestamp của incident: **MTTA** (`acknowledgedAt − triggeredAt`), **MTTR** (`resolvedAt − triggeredAt`), **MTTD** (`detectedAt − actualFailureAt`), và tỷ lệ escalation. Alert-noise analytics theo dõi toàn bộ funnel event → alert → incident (ví dụ 100.000 event → 15.000 alert → 9.000 deduplicated → 800 incident) để định lượng hiệu quả giảm nhiễu của pipeline.
-- **SLA / SLO.** Service có thể khai báo SLO (ví dụ 99.9% availability) kèm error budget tương ứng; incident được quy về mức tiêu hao error budget của service liên quan.
+- **Analytics & Reliability Metrics.** Các KPI reliability tiêu chuẩn được tính trực tiếp từ timestamp của incident: **MTTA** (`acknowledgedAt − triggeredAt`) và **MTTR** (`resolvedAt − triggeredAt`) được tính **tự động, real-time** vì cả hai mốc thời gian đều do chính hệ thống ghi nhận. **MTTD** (`detectedAt − actualFailureAt`) thì khác về bản chất: `actualFailureAt` (thời điểm sự cố *thực sự* bắt đầu) không thể biết được tại thời điểm phát hiện — đó chính là khoảng trống mà MTTD đo lường. Vì vậy `actualFailureAt` là một trường **nullable, nhập tay** trong Post-Incident Review (UC-26), do Incident Commander ước lượng hồi cứu (dựa trên log/metric); MTTD do đó là một chỉ số **best-effort/ước lượng**, không phải real-time metric như MTTA/MTTR — đúng tinh thần Google SRE Book, nơi MTTD thường được tính hồi cứu trong postmortem chứ không đo được tức thời. Alert-noise analytics theo dõi toàn bộ funnel event → alert → incident (ví dụ 100.000 event → 15.000 alert → 9.000 deduplicated → 800 incident) để định lượng hiệu quả giảm nhiễu của pipeline.
+- **SLA / SLO.** Service có thể khai báo SLO (ví dụ 99.9% availability) kèm error budget tương ứng (`errorBudget = (1 − SLO) × thời gian trong cửa sổ đo`). Mức tiêu hao được tính từ thời lượng downtime/degradation thực tế (không chỉ đếm số incident), và hệ thống hỗ trợ **multi-window burn-rate alerting** theo mô hình Google SRE Workbook — ví dụ cảnh báo "fast burn" khi tốc độ tiêu hao trong cửa sổ 1 giờ/5 phút vượt ngưỡng, và "slow burn" khi cửa sổ 6 giờ vượt ngưỡng — để phát hiện sớm nguy cơ vi phạm SLO trước khi error budget cạn hoàn toàn, thay vì chỉ báo cáo sau khi đã tiêu hết.
 - **Status Page.** Một trang public hoặc giới hạn theo đối tượng, phản ánh trạng thái vận hành theo từng service, được cập nhật tự động từ trạng thái incident (có human approval cho các nội dung hướng tới công chúng khi cần).
 - **Maintenance Window.** Một rule suppression có giới hạn thời gian cho một service cụ thể — các event khớp trong khoảng thời gian này được ghi nhận nhưng không bao giờ escalate thành incident.
 - **Audit Log.** Mọi hành động có quyền hạn cao (ai, làm gì, khi nào, trên đối tượng nào, giá trị cũ → giá trị mới) đều được ghi lại bất biến — một yêu cầu nền tảng cho bất kỳ hệ thống nào quản lý quyền truy cập production và remediation tự động.
@@ -398,9 +453,9 @@ flowchart LR
 - **Mô tả:** Gộp các event/alert trùng lặp hoặc liên quan thành một alert/nhóm.
 - **Điều kiện tiên quyết:** Event đã qua Event Orchestration và không bị suppress.
 - **Luồng sự kiện chính:**
-  1. Engine kiểm tra `dedupKey` trong Redis cache.
+  1. Engine kiểm tra `dedupKey` của alert **đang mở** trong Redis cache (fast-path; nguồn chân lý là `uniq_open_dedup` ở DB — xem §2.6).
   2. Nếu đã tồn tại → gộp vào alert hiện có, publish `AlertDeduplicated`.
-  3. Nếu chưa tồn tại → tạo alert mới, publish `AlertCreated`.
+  3. Nếu chưa tồn tại (hoặc alert cũ cùng key đã `RESOLVED`) → tạo alert mới, publish `AlertCreated`.
   4. Nếu alert liên quan tới các alert khác cùng thời điểm → gộp nhóm, publish `AlertGrouped`.
 - **Điều kiện sau:** Alert (mới hoặc đã gộp) sẵn sàng cho Incident Management xử lý.
 
@@ -429,10 +484,11 @@ flowchart LR
 - **Mô tả:** Đưa incident lên level tiếp theo của escalation policy khi hết timeout mà chưa được acknowledge.
 - **Điều kiện tiên quyết:** Incident ở trạng thái `TRIGGERED` và đã hết `timeoutMinutes` của level hiện tại; hoặc responder chủ động escalate.
 - **Luồng sự kiện chính:**
-  1. Escalation Worker (dùng Redis-scheduled job) phát hiện timeout của level hiện tại.
-  2. Worker lấy Redis distributed lock trên incident để tránh xử lý trùng.
-  3. Hệ thống chuyển sang level tiếp theo trong `EscalationPolicy`, publish `IncidentEscalated`.
-  4. Notification Worker gửi thông báo tới target của level mới (UC-16).
+  1. Escalation Worker (dùng Redis-scheduled job, hoặc DB polling ở Phase 1–2 — xem §3.3) phát hiện timeout của level hiện tại.
+  2. Worker lấy Redis distributed lock trên incident để giảm tranh chấp (không phải nguồn đúng-sai duy nhất).
+  3. Worker **re-fetch và re-validate trạng thái incident** ngay trước khi hành động — chỉ escalate nếu vẫn còn `TRIGGERED` đúng `escalation_level` mong đợi, thực hiện qua `UPDATE ... WHERE version = :expectedVersion` (fencing token — xem §2.6). Nếu incident đã được acknowledge trong lúc chờ → bỏ qua, không escalate.
+  4. Hệ thống chuyển sang level tiếp theo trong `EscalationPolicy`, publish `IncidentEscalated`.
+  5. Notification Worker gửi thông báo tới (các) target của level mới, có thể **re-notify** nhiều lần trong cùng level trước khi escalate tiếp (UC-16, §3.3).
 - **Luồng ngoại lệ:** Đã ở level cuối cùng → thông báo tới toàn bộ team/manager.
 - **Điều kiện sau:** Incident được gán trách nhiệm cho level mới; đồng hồ timeout của level mới bắt đầu chạy.
 
@@ -493,14 +549,15 @@ flowchart LR
 - **Điều kiện sau:** Stakeholder nắm được tiến độ mới nhất mà không cần hỏi trực tiếp responder.
 
 **UC-19 — Resolve Incident**
-- **Tác nhân:** On-call Responder
+- **Tác nhân:** On-call Responder (thủ công); System (tự động, xem luồng thay thế)
 - **Mô tả:** Đóng một incident sau khi vấn đề đã được khắc phục.
 - **Điều kiện tiên quyết:** Incident ở trạng thái `ACKNOWLEDGED` (thường sau khi remediation đã có hiệu lực).
 - **Luồng sự kiện chính:**
   1. Responder gọi `POST /incidents/{id}/resolve`.
-  2. Hệ thống chuyển trạng thái sang `RESOLVED`, publish `IncidentResolved`, ghi `resolvedAt`.
+  2. Hệ thống chuyển trạng thái sang `RESOLVED`, publish `IncidentResolved`, ghi `resolvedAt`, giải phóng dedup key (`DEL dedup:<key>` — xem §2.6).
   3. Hệ thống tự động yêu cầu AI Postmortem Agent soạn thảo PIR (UC-25).
-- **Điều kiện sau:** Incident đóng; MTTR được tính; quy trình Post-Incident Review bắt đầu.
+- **Luồng thay thế — Auto-resolve:** Nếu Monitoring System gửi một event loại `RESOLVE` mang cùng `dedupKey` của alert đang mở (ví dụ CPU quay về ngưỡng bình thường), hệ thống tự resolve alert/incident tương ứng mà không cần responder thao tác (xem §3.3).
+- **Điều kiện sau:** Incident đóng; MTTR được tính; quy trình Post-Incident Review bắt đầu (bao gồm việc Incident Commander nhập `actualFailureAt` để tính MTTD — xem §3.5).
 
 ### 4.5 Use Case: Automation & AI Operations
 
@@ -527,24 +584,26 @@ flowchart LR
 **UC-20 — Thực thi Runbook (Trigger/Execute)**
 - **Tác nhân:** Automation Worker (tự động); On-call Responder (thủ công)
 - **Mô tả:** Thực thi một hành động vận hành đã định nghĩa trước (runbook) trên một service.
-- **Điều kiện tiên quyết:** Runbook tồn tại; nếu `requiresApproval = true` thì UC-21 phải hoàn tất trước.
+- **Điều kiện tiên quyết:** Runbook tồn tại; nếu `runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH` (xem §3.4) thì UC-21 phải hoàn tất trước.
 - **Luồng sự kiện chính:**
   1. Runbook được kích hoạt (thủ công qua `POST /runbooks/{id}/execute`, hoặc tự động từ AI recommendation đã approve).
-  2. Automation Worker thực thi hành động (restart, rollback, scale,...).
-  3. Hệ thống ghi lại `automation_executions`, publish `AutomationExecuted`.
+  2. Hệ thống kiểm tra `automation_rate_limits`: nếu vượt ngưỡng lặp lại trong 15 phút gần nhất → nâng `effectiveRiskLevel` lên `HIGH` và chuyển sang UC-21 bất kể trạng thái pre-authorize (Automation Circuit Breaker — xem §2.6).
+  3. Automation Worker thực thi hành động (restart, rollback, scale,...).
+  4. Hệ thống ghi lại `automation_executions`, tăng bộ đếm `automation_rate_limits`, publish `AutomationExecuted`.
 - **Luồng ngoại lệ:** Thực thi thất bại → ghi log lỗi, thông báo cho responder.
 - **Điều kiện sau:** Hành động vận hành đã được thực thi (hoặc ghi nhận thất bại) trên service mục tiêu.
 
 **UC-21 — Phê duyệt Automated Remediation (Human Approval Gate)**
 - **Tác nhân:** On-call Responder, Incident Commander
 - **Mô tả:** Con người xem xét và phê duyệt (hoặc từ chối) một hành động remediation rủi ro cao do AI đề xuất.
-- **Điều kiện tiên quyết:** AI Remediation Agent đã đưa ra đề xuất với `riskLevel = HIGH` (UC-23).
+- **Điều kiện tiên quyết:** `runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH` cho action tương ứng (từ `riskLevel` tĩnh của runbook, service criticality, hoặc circuit breaker — xem §3.4).
 - **Luồng sự kiện chính:**
-  1. Hệ thống hiển thị đề xuất remediation kèm bằng chứng và mức rủi ro cho actor có quyền `AUTOMATION_EXECUTE`.
+  1. Hệ thống hiển thị đề xuất remediation kèm bằng chứng (evidence từ `AI_INVESTIGATION`/`AI_TOOL_CALL`) và mức rủi ro cho actor có quyền `AUTOMATION_EXECUTE`.
   2. Actor xem xét, gọi `POST /automation/{id}/approve` (hoặc từ chối).
-  3. Nếu approve → publish `AutomationApproved`, chuyển sang UC-20.
-- **Luồng ngoại lệ:** Actor từ chối → đề xuất bị huỷ, responder xử lý thủ công.
-- **Điều kiện sau:** Quyết định phê duyệt/từ chối được ghi vào audit log; automation chỉ chạy khi đã approve.
+  3. Hệ thống ghi bản `automation_approvals` bất biến (`approvedBy`, `decision`, `decidedAt`, `evidenceSnapshotRef` — snapshot đúng bằng chứng đã hiển thị tại bước 1, phục vụ audit sau này).
+  4. Nếu approve → publish `AutomationApproved`, chuyển sang UC-20.
+- **Luồng ngoại lệ:** Actor từ chối → đề xuất bị huỷ (vẫn ghi `automation_approvals` với `decision = REJECTED`), responder xử lý thủ công.
+- **Điều kiện sau:** Quyết định phê duyệt/từ chối được ghi bất biến vào `automation_approvals` và `audit_logs`; automation chỉ chạy khi đã approve; quyết định có thể truy vết lại chính xác bằng chứng đã dùng tại thời điểm phê duyệt.
 
 **UC-22 — AI Triage Alert**
 - **Tác nhân:** AI Agent (Triage Agent)
@@ -564,7 +623,7 @@ flowchart LR
   1. Agent thu thập logs, metrics, recent deployments, dependencies (qua tool calling).
   2. Agent truy vấn Knowledge Base (RAG) để tìm incident/runbook tương tự (UC-24).
   3. Agent tổng hợp giả thuyết root-cause kèm độ tin cậy, đề xuất remediation và risk rating.
-  4. Nếu risk = `HIGH` → chuyển sang UC-21 (Human Approval); nếu `LOW` → có thể tự động thực thi theo policy.
+  4. Nếu `effectiveRiskLevel = HIGH` → chuyển sang UC-21 (Human Approval); nếu `LOW` và không bị `requiresApproval` ép buộc (§3.4) → có thể tự động thực thi theo policy.
 - **Điều kiện sau:** Kết quả investigation (root cause, bằng chứng, đề xuất) được gắn vào Incident Detail.
 
 **UC-24 — Truy vấn Knowledge Base**
@@ -672,17 +731,19 @@ flowchart LR
 |---|---|
 | Identity & Access | `users`, `roles`, `permissions`, `user_roles`, `organizations`, `teams`, `team_members` |
 | Service & Integration | `services`, `service_dependencies`, `service_integrations`, `maintenance_windows` |
-| Event & Alert Processing | `events`, `alerts`, `alert_groups`, `routing_rules`, `orchestration_rules` |
-| Incident Management | `incidents`, `incident_alerts`, `incident_events`, `incident_notes`, `incident_responders`, `incident_subscribers` |
-| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` |
+| Event & Alert Processing | `events`, `alerts`, `alert_groups`, `routing_rules`, `orchestration_rules`, `idempotency_keys` |
+| Incident Management | `incidents` (kèm cột `version` cho optimistic locking), `incident_alerts`, `incident_events`, `incident_notes`, `incident_responders` (kèm cột `role`: Incident Commander/Technical Lead/Communications Lead/Scribe/Responder), `incident_subscribers` |
+| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` (hỗ trợ nhiều target/level + `repeatCount`) |
 | Notification | `notification_rules`, `notification_deliveries` |
-| Automation & Workflow | `workflows`, `workflow_steps`, `workflow_executions`, `runbooks`, `automation_actions`, `automation_executions` |
+| Automation & Workflow | `workflows`, `workflow_steps`, `workflow_executions`, `runbooks`, `automation_actions`, `automation_approvals`, `automation_executions`, `automation_rate_limits` |
 | Knowledge & AI | `knowledge_documents`, `knowledge_chunks`, `embeddings`, `ai_agents`, `ai_sessions`, `ai_tool_calls`, `ai_investigations` |
 | Governance & Analytics | `post_incident_reviews`, `post_incident_actions`, `audit_logs`, `slo_configs`, `service_metrics` |
 
 ### 5.2 Quan hệ Entity Cốt lõi
 
-Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu một hoặc nhiều `Services`. Mỗi `Service` liên kết với một `Integration` (cho event ingestion), một `EscalationPolicy` (cho routing), một `Schedule` (để resolve on-call), và tập hợp `Dependencies` với các service khác. `Events` đầu vào được chuyển thành `Alerts` gắn với một `Service`; các `Alerts` liên quan được gộp vào một `Incident`, incident này tích luỹ `Responders`, một `Timeline`, `Notes`, `Status Updates`, một `AI Investigation`, các lần thực thi `Automation` (nếu có), và cuối cùng là một `Postmortem`.
+Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu một hoặc nhiều `Services`. Mỗi `Service` liên kết với một `Integration` (cho event ingestion), một `EscalationPolicy` (cho routing), một `Schedule` (để resolve on-call), và tập hợp `Dependencies` với các service khác. `Events` đầu vào được chuyển thành `Alerts` gắn với một `Service`; các `Alerts` liên quan được gộp vào một `Incident`, incident này tích luỹ `Responders` (mỗi responder có một `role` — Incident Commander, Technical Lead, Communications Lead, Scribe, hoặc Responder), một `Timeline`, `Notes`, `Status Updates`, một hoặc nhiều `AI Investigation`, các lần thực thi `Automation` kèm `Approval` tương ứng, và cuối cùng là một `Postmortem`.
+
+**Bổ sung sau kiểm toán (audit fix N6).** Chuỗi truy vết `Incident → AI Investigation → Automation Action → Approval → Execution` trước đây không có trong ERD dù là trụ cột của cơ chế Human Approval Gate (§2.6) — nếu không có bản ghi bất biến "AI đã trình bày bằng chứng gì tại thời điểm approve", hệ thống không thể audit lại quyết định approve sau này. ERD dưới đây bổ sung đầy đủ chuỗi này, cùng với RBAC (`Role`/`Permission`) và `AuditLog` — trước đó chỉ xuất hiện ở bảng tổng quan §5.1 chứ chưa có trong sơ đồ quan hệ.
 
 ### 5.3 Sơ đồ Quan hệ Thực thể (ERD)
 
@@ -708,6 +769,21 @@ erDiagram
     USER ||--o{ INCIDENT_RESPONDER : "assigned as"
     INCIDENT ||--o{ INCIDENT_EVENT : logs
     INCIDENT ||--o| POST_INCIDENT_REVIEW : generates
+
+    USER ||--o{ USER_ROLE : has
+    ROLE ||--o{ USER_ROLE : "granted via"
+    ROLE ||--o{ ROLE_PERMISSION : includes
+    PERMISSION ||--o{ ROLE_PERMISSION : "granted by"
+    USER ||--o{ AUDIT_LOG : performs
+
+    INCIDENT ||--o{ AI_INVESTIGATION : produces
+    AI_INVESTIGATION ||--o{ AI_TOOL_CALL : uses
+    AI_INVESTIGATION ||--o| AUTOMATION_ACTION : recommends
+    SERVICE ||--o{ RUNBOOK : defines
+    RUNBOOK ||--o{ AUTOMATION_ACTION : "instantiated as"
+    AUTOMATION_ACTION ||--o| AUTOMATION_APPROVAL : requires
+    AUTOMATION_APPROVAL }o--|| USER : "decided by"
+    AUTOMATION_ACTION ||--o| AUTOMATION_EXECUTION : triggers
 
     ORGANIZATION {
         uuid id PK
@@ -736,6 +812,59 @@ erDiagram
         string incidentNumber
         string status
         string priority
+        int version
+    }
+    INCIDENT_RESPONDER {
+        uuid id PK
+        uuid incidentId FK
+        uuid userId FK
+        string role
+    }
+    ROLE {
+        uuid id PK
+        string name
+    }
+    PERMISSION {
+        uuid id PK
+        string code
+    }
+    AUDIT_LOG {
+        uuid id PK
+        uuid actorId FK
+        string action
+        string resourceType
+        uuid resourceId
+        jsonb oldValue
+        jsonb newValue
+        timestamp createdAt
+    }
+    AI_INVESTIGATION {
+        uuid id PK
+        uuid incidentId FK
+        string hypothesis
+        float confidenceScore
+        timestamp createdAt
+    }
+    RUNBOOK {
+        uuid id PK
+        uuid serviceId FK
+        string name
+        string riskLevel
+        boolean requiresApproval
+    }
+    AUTOMATION_ACTION {
+        uuid id PK
+        uuid runbookId FK
+        uuid incidentId FK
+        string effectiveRiskLevel
+    }
+    AUTOMATION_APPROVAL {
+        uuid id PK
+        uuid automationActionId FK
+        uuid approvedBy FK
+        string decision
+        timestamp decidedAt
+        string evidenceSnapshotRef
     }
 ```
 
@@ -856,10 +985,12 @@ Nền tảng chủ động **không** được xây dựng thành 15 microservic
 
 | Hạng mục | Ghi chú |
 |---|---|
-| Integration & Event Ingestion | Events API, integration key |
-| Dedup, Grouping, Routing | Rule engine v1 |
+| Integration & Event Ingestion | Events API, integration key, `idempotency_keys` (unique constraint ở DB — xem §2.6) |
+| Dedup, Grouping, Routing | Rule engine v1; dedup theo `uniq_open_dedup` (chỉ alert đang mở — xem §2.6) |
 | On-call Scheduling | Rotation, override |
-| Escalation & Notification | Policy nhiều level, gửi đa kênh |
+| Escalation & Notification | Policy nhiều level (đa target/level, re-notify); **timeout scheduling dùng DB polling** (`SELECT ... FOR UPDATE SKIP LOCKED` + `@Scheduled`), chưa cần Kafka/Redis — xem §3.3 |
+
+> **Audit fix (N4):** bản trước đây yêu cầu Phase 2 có escalation hoạt động nhưng cơ chế mô tả ở §3.3 (Kafka + Redis) chỉ có từ Phase 3 — tự mâu thuẫn. Phase 2 nay dùng DB polling làm cơ chế escalation timeout tạm thời, đủ dùng ở quy mô nhỏ/vừa; Phase 3 nâng cấp sang Kafka + Redis khi cần scale (không đổi hành vi nghiệp vụ, chỉ đổi cơ chế thực thi bên dưới).
 
 ### 8.3 Phase 3 — Advanced Reliability
 
@@ -867,22 +998,34 @@ Nền tảng chủ động **không** được xây dựng thành 15 microservic
 
 | Hạng mục | Ghi chú |
 |---|---|
-| Kafka event bus | Thay thế xử lý đồng bộ |
-| Redis reliability patterns | Idempotency, distributed locking, rate limiting |
+| Kafka event bus | Thay thế DB polling cho escalation scheduling; partition theo `incidentId`/`serviceId` (xem §2.4) |
+| Tách process API ↔ Worker | Escalation/Notification/AI/Automation Worker chạy process riêng, tách khỏi REST API (xem §2.1) |
+| Redis reliability patterns | Fencing token cho distributed lock, rate limiting (Redis chỉ là fast-path cache — DB vẫn là nguồn chân lý) |
 | Retry / DLQ | Tăng độ tin cậy cho notification delivery |
+| Automation Circuit Breaker | `automation_rate_limits`, ép về Human Approval khi lặp lại (xem §2.6) |
 | Maintenance windows, Runbooks | Suppression + các automation action đầu tiên |
 | Incident collaboration | War room, status update |
+| **Load & chaos testing (baseline)** | Kiểm chứng sớm idempotency/dedup/rate-limiting dưới tải burst — không đợi tới Phase 5 |
 
 ### 8.4 Phase 4 — AI Operations
 
-**Mục tiêu:** đưa ra điểm khác biệt cốt lõi của nền tảng.
+**Mục tiêu:** đưa ra điểm khác biệt cốt lõi của nền tảng, chia hai giai đoạn con để tách rủi ro "hạ tầng AI" khỏi rủi ro "AI được phép ghi/thực thi".
+
+**Phase 4a — AI Read-Only** (rủi ro thấp, không cần Human Approval Gate):
 
 | Hạng mục | Ghi chú |
 |---|---|
 | Knowledge base & RAG | Retrieval dựa trên PGVector |
-| Triage & Investigation Agents | Tool-calling trên dữ liệu platform |
+| Triage & Investigation Agents | Tool-calling trên dữ liệu platform (chỉ đọc); `ai_investigations`, `ai_tool_calls` |
+| Knowledge Agent, On-call Assistant | Trả lời câu hỏi, không thay đổi trạng thái hệ thống |
+
+**Phase 4b — AI Write-Capable + Governance** (chỉ bắt đầu sau khi 4a đã ổn định về chất lượng câu trả lời):
+
+| Hạng mục | Ghi chú |
+|---|---|
+| Remediation Agent | Đề xuất hành động kèm `riskLevel` |
+| Human Approval Gate | `automation_approvals`, `effectiveRiskLevel` động (xem §3.4) |
 | Postmortem / Scribe Agent | Tự động soạn thảo PIR |
-| Human Approval Gate | Automation phân loại theo rủi ro |
 
 ### 8.5 Phase 5 — Production Engineering
 
@@ -891,9 +1034,9 @@ Nền tảng chủ động **không** được xây dựng thành 15 microservic
 | Hạng mục | Ghi chú |
 |---|---|
 | CI/CD, Docker, AWS deployment | |
-| Observability | Prometheus, Grafana, OpenTelemetry |
+| Observability (self-observability) | Prometheus, Grafana, OpenTelemetry — NexusOps **tự giám sát chính nó** (dogfooding chuẩn SRE); đây không phải sản phẩm observability bán cho khách hàng, không mâu thuẫn với ranh giới scope ở §1.4 |
 | Security hardening | Rate limiting, phủ audit log đầy đủ |
-| Load testing | Kiểm chứng ngưỡng throughput ingestion |
+| Load & chaos testing (mở rộng) | Mở rộng bộ test đã có từ Phase 3 lên quy mô production-like |
 
 ### 8.6 Ma trận Ưu tiên
 
@@ -903,8 +1046,10 @@ Nền tảng chủ động **không** được xây dựng thành 15 microservic
 | Service Directory, Event Ingestion, Alerting, Dedup | Must |
 | Incident, On-call, Escalation, Notification | Must |
 | Kafka, Redis, Rule Engine, Runbooks | Should |
+| Idempotency store (DB), Audit Log, RBAC entities | Must — điều kiện tiên quyết cho compliance/audit, không được lùi lại |
 | RAG, AI Investigation | Must (đối với bản phát hành có AI) |
 | AI Triage, AI Postmortem, Automation | Should |
+| Automation Circuit Breaker (rate limit + dynamic risk) | Must — bắt buộc trước khi Automation Worker được phép thực thi bất kỳ action nào |
 | Status Page, SLO | Nice to have |
 | Mobile app, Multi-region HA | Ngoài phạm vi |
 
