@@ -313,14 +313,30 @@ Mục này đặc tả đầy đủ các **tác nhân (actor)** và **use case**
 
 ```mermaid
 flowchart LR
-    AllUsers[Mọi User]
-    AccountAdmin[Account Admin]
-    TeamManager[Team Manager]
+    subgraph ACTORS_A["👤 Con người"]
+        AllUsers[Mọi User]
+        AccountAdmin[Account Admin]
+        TeamManager[Team Manager]
+    end
 
-    AllUsers --> UC01([UC-01 Đăng ký / Đăng nhập])
-    AccountAdmin --> UC02([UC-02 Quản lý Role & Permission])
-    AccountAdmin --> UC03([UC-03 Quản lý Organization & Team])
-    TeamManager --> UC03
+    subgraph SYS_A["Hệ thống NexusOps — Identity, Access & Organization"]
+        UC01(["UC-01<br/>Đăng ký / Đăng nhập"])
+        UC02(["UC-02<br/>Quản lý Role & Permission"])
+        UC03(["UC-03<br/>Quản lý Organization & Team"])
+    end
+
+    AllUsers --- UC01
+    AccountAdmin --- UC02
+    AccountAdmin --- UC03
+    TeamManager --- UC03
+
+    UC02 -.->|"«include»"| UC01
+    UC03 -.->|"«include»"| UC01
+
+    classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
+    classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    class AllUsers,AccountAdmin,TeamManager actorHuman
+    class UC01,UC02,UC03 usecase
 ```
 
 **UC-01 — Đăng ký & Đăng nhập**
@@ -360,14 +376,35 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    TeamManager[Team Manager]
-    MonitoringSystem[Monitoring System]
+    subgraph ACTORS_B_H["👤 Con người"]
+        TeamManagerB[Team Manager]
+    end
+    subgraph ACTORS_B_S["🖥️ Hệ thống"]
+        MonitoringSystem[[Monitoring System]]
+    end
 
-    TeamManager --> UC04([UC-04 Quản lý Service Directory])
-    TeamManager --> UC05([UC-05 Định nghĩa Service Dependency])
-    TeamManager --> UC06([UC-06 Cấu hình Integration & API Key])
-    MonitoringSystem --> UC07([UC-07 Ingest Monitoring Event])
-    UC06 -.->|"cấp API key cho"| UC07
+    subgraph SYS_B["Hệ thống NexusOps — Service Directory & Integration Layer"]
+        UC04(["UC-04<br/>Quản lý Service Directory"])
+        UC05(["UC-05<br/>Định nghĩa Service Dependency"])
+        UC06(["UC-06<br/>Cấu hình Integration & API Key"])
+        UC07(["UC-07<br/>Ingest Monitoring Event"])
+    end
+
+    TeamManagerB --- UC04
+    TeamManagerB --- UC05
+    TeamManagerB --- UC06
+    MonitoringSystem --- UC07
+
+    UC05 -.->|"tiền điều kiện"| UC04
+    UC06 -.->|"tiền điều kiện"| UC04
+    UC07 -.->|"tiền điều kiện: API key hợp lệ"| UC06
+
+    classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
+    classDef actorSystem fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+    classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    class TeamManagerB actorHuman
+    class MonitoringSystem actorSystem
+    class UC04,UC05,UC06,UC07 usecase
 ```
 
 **UC-04 — Quản lý Service Directory**
@@ -415,27 +452,64 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    TeamManager[Team Manager]
-    Responder[On-call Responder]
-    Commander[Incident Commander]
-    Stakeholder[Stakeholder]
-    SystemWorker[[System - Automated Worker]]
+    subgraph ACTORS_C_H["👤 Con người"]
+        TeamManagerC[Team Manager]
+        Responder[On-call Responder]
+        Commander[Incident Commander]
+        Stakeholder[Stakeholder]
+    end
+    subgraph ACTORS_C_S["🖥️ Hệ thống"]
+        SystemWorker[[Dedup / Incident / Escalation Worker]]
+    end
 
-    TeamManager --> UC08([UC-08 Cấu hình Orchestration Rule])
-    SystemWorker --> UC09([UC-09 Deduplicate & Group Alerts])
-    SystemWorker --> UC10([UC-10 Tạo Incident])
-    Responder --> UC11([UC-11 Acknowledge Incident])
-    SystemWorker --> UC12([UC-12 Escalate Incident])
-    Responder --> UC12
-    TeamManager --> UC13([UC-13 Quản lý Schedule])
-    Responder --> UC14([UC-14 Override Schedule])
-    TeamManager --> UC15([UC-15 Cấu hình Escalation Policy])
-    Responder --> UC16([UC-16 Nhận Notification])
-    Stakeholder --> UC16
-    Responder --> UC17([UC-17 Collaborate War Room])
-    Commander --> UC17
-    Commander --> UC18([UC-18 Đăng Status Update])
-    Responder --> UC19([UC-19 Resolve Incident])
+    subgraph SYS_C["Hệ thống NexusOps — Incident Response Pipeline"]
+        UC08(["UC-08<br/>Cấu hình Orchestration Rule"])
+        UC09(["UC-09<br/>Deduplicate & Group Alerts"])
+        UC10(["UC-10<br/>Tạo Incident"])
+        UC11(["UC-11<br/>Acknowledge Incident"])
+        UC12(["UC-12<br/>Escalate Incident"])
+        UC13(["UC-13<br/>Quản lý Schedule"])
+        UC14(["UC-14<br/>Override Schedule"])
+        UC15(["UC-15<br/>Cấu hình Escalation Policy"])
+        UC16(["UC-16<br/>Nhận Notification"])
+        UC17(["UC-17<br/>Collaborate War Room"])
+        UC18(["UC-18<br/>Đăng Status Update"])
+        UC19(["UC-19<br/>Resolve Incident"])
+    end
+
+    REF_AI[/"→ Nhóm D:<br/>AI Triage (UC-22)<br/>AI Investigate (UC-23)"/]
+    REF_PM[/"→ Nhóm D:<br/>AI Postmortem (UC-25)"/]
+
+    TeamManagerC --- UC08
+    TeamManagerC --- UC13
+    TeamManagerC --- UC15
+    SystemWorker --- UC09
+    SystemWorker --- UC10
+    SystemWorker --- UC12
+    Responder --- UC11
+    Responder --- UC12
+    Responder --- UC14
+    Responder --- UC16
+    Responder --- UC17
+    Responder --- UC19
+    Stakeholder --- UC16
+    Commander --- UC17
+    Commander --- UC18
+
+    UC09 -->|"kích hoạt"| UC10
+    UC10 -->|"khởi động hẹn giờ"| UC12
+    UC10 -.->|"«include»: luôn chạy song song"| REF_AI
+    UC11 -.->|"⊣ ngăn chặn nếu ACK trước timeout"| UC12
+    UC19 -.->|"«include»"| REF_PM
+
+    classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
+    classDef actorSystem fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+    classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    classDef refNode fill:#f3f4f6,stroke:#9ca3af,stroke-width:1px,stroke-dasharray: 3 3,color:#4b5563
+    class TeamManagerC,Responder,Commander,Stakeholder actorHuman
+    class SystemWorker actorSystem
+    class UC08,UC09,UC10,UC11,UC12,UC13,UC14,UC15,UC16,UC17,UC18,UC19 usecase
+    class REF_AI,REF_PM refNode
 ```
 
 **UC-08 — Cấu hình Event Orchestration Rule**
@@ -563,22 +637,52 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    AutomationWorker[[Automation Worker]]
-    Responder[On-call Responder]
-    Commander[Incident Commander]
-    AIAgent((AI Agent))
+    subgraph ACTORS_D_H["👤 Con người"]
+        Responder2[On-call Responder]
+        Commander2[Incident Commander]
+    end
+    subgraph ACTORS_D_S["🖥️ Hệ thống"]
+        AutomationWorker[[Automation Worker]]
+        AIAgent[[AI Agent]]
+    end
 
-    AutomationWorker --> UC20([UC-20 Thực thi Runbook])
-    Responder --> UC20
-    Responder --> UC21([UC-21 Phê duyệt Remediation])
-    Commander --> UC21
-    AIAgent --> UC22([UC-22 AI Triage Alert])
-    AIAgent --> UC23([UC-23 AI Investigate Incident])
-    Responder --> UC24([UC-24 Truy vấn Knowledge Base])
-    AIAgent --> UC24
-    AIAgent --> UC25([UC-25 AI Generate Postmortem])
-    UC23 -.->|"risk = HIGH"| UC21
-    UC21 -.->|"approved"| UC20
+    subgraph SYS_D["Hệ thống NexusOps — Automation & AI Operations"]
+        UC20(["UC-20<br/>Thực thi Runbook"])
+        UC21(["UC-21<br/>Phê duyệt Remediation<br/>(Human Approval Gate)"])
+        UC22(["UC-22<br/>AI Triage Alert"])
+        UC23(["UC-23<br/>AI Investigate Incident"])
+        UC24(["UC-24<br/>Truy vấn Knowledge Base"])
+        UC25(["UC-25<br/>AI Generate Postmortem"])
+    end
+
+    REF_INC[/"← Nhóm C:<br/>Tạo Incident (UC-10)"/]
+    REF_PIR[/"→ Nhóm E:<br/>Review & Approve PIR (UC-26)"/]
+
+    AutomationWorker --- UC20
+    Responder2 --- UC20
+    Responder2 --- UC21
+    Commander2 --- UC21
+    AIAgent --- UC22
+    AIAgent --- UC23
+    AIAgent --- UC24
+    AIAgent --- UC25
+    Responder2 --- UC24
+
+    REF_INC -.->|"«include»"| UC22
+    REF_INC -.->|"«include»"| UC23
+    UC23 -.->|"«include»"| UC24
+    UC23 -->|"phát hiện effectiveRiskLevel = HIGH<br/>→ yêu cầu duyệt"| UC21
+    UC21 -.->|"«extend»<br/>điểm mở rộng: effectiveRiskLevel = HIGH<br/>HOẶC requiresApproval = true"| UC20
+    UC25 -.->|"«include»"| REF_PIR
+
+    classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
+    classDef actorSystem fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+    classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    classDef refNode fill:#f3f4f6,stroke:#9ca3af,stroke-width:1px,stroke-dasharray: 3 3,color:#4b5563
+    class Responder2,Commander2 actorHuman
+    class AutomationWorker,AIAgent actorSystem
+    class UC20,UC21,UC22,UC23,UC24,UC25 usecase
+    class REF_INC,REF_PIR refNode
 ```
 
 **UC-20 — Thực thi Runbook (Trigger/Execute)**
@@ -650,20 +754,42 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    Commander[Incident Commander]
-    TeamManager[Team Manager]
-    AccountAdmin[Account Admin]
-    Stakeholder[Stakeholder]
+    subgraph ACTORS_E["👤 Con người"]
+        Commander3[Incident Commander]
+        TeamManagerE[Team Manager]
+        AccountAdmin2[Account Admin]
+        Stakeholder2[Stakeholder]
+    end
 
-    Commander --> UC26([UC-26 Review & Approve PIR])
-    TeamManager --> UC26
-    TeamManager --> UC27([UC-27 Xem Analytics Dashboard])
-    Stakeholder --> UC27
-    TeamManager --> UC28([UC-28 Cấu hình SLO])
-    TeamManager --> UC29([UC-29 Quản lý Maintenance Window])
-    AccountAdmin --> UC30([UC-30 Xem Audit Log])
-    AccountAdmin --> UC31([UC-31 Quản lý Status Page])
-    Commander --> UC31
+    subgraph SYS_E["Hệ thống NexusOps — Reliability Engineering & Governance"]
+        UC26(["UC-26<br/>Review & Approve PIR"])
+        UC27(["UC-27<br/>Xem Analytics Dashboard"])
+        UC28(["UC-28<br/>Cấu hình SLO"])
+        UC29(["UC-29<br/>Quản lý Maintenance Window"])
+        UC30(["UC-30<br/>Xem Audit Log"])
+        UC31(["UC-31<br/>Quản lý Status Page"])
+    end
+
+    REF_PM2[/"← Nhóm D:<br/>AI Postmortem (UC-25)"/]
+
+    Commander3 --- UC26
+    TeamManagerE --- UC26
+    TeamManagerE --- UC27
+    Stakeholder2 --- UC27
+    TeamManagerE --- UC28
+    TeamManagerE --- UC29
+    AccountAdmin2 --- UC30
+    AccountAdmin2 --- UC31
+    Commander3 --- UC31
+
+    REF_PM2 -.->|"«include»"| UC26
+
+    classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
+    classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+    classDef refNode fill:#f3f4f6,stroke:#9ca3af,stroke-width:1px,stroke-dasharray: 3 3,color:#4b5563
+    class Commander3,TeamManagerE,AccountAdmin2,Stakeholder2 actorHuman
+    class UC26,UC27,UC28,UC29,UC30,UC31 usecase
+    class REF_PM2 refNode
 ```
 
 **UC-26 — Review & Approve Post-Incident Review**
@@ -720,6 +846,131 @@ flowchart LR
   1. Hệ thống tự động đề xuất cập nhật status page dựa trên trạng thái incident hiện tại.
   2. Actor xem xét, chỉnh sửa nội dung hướng tới công chúng (nếu cần), phê duyệt trước khi công bố.
 - **Điều kiện sau:** Status Page phản ánh đúng và kịp thời tình trạng vận hành các service.
+
+### 4.7 Sơ đồ Bổ sung — Sequence & State Diagram cho các Luồng Phức tạp
+
+Use Case Diagram ở trên trả lời câu hỏi "hệ thống có những gì và ai dùng" nhưng không thể hiện thứ tự thời gian hay vòng đời trạng thái. Bốn sơ đồ dưới đây bổ sung chiều thời gian cho hai luồng phức tạp nhất của nền tảng (Automation & AI Operations, Escalation & Notification) và vòng đời trạng thái của hai entity trung tâm (`Incident`, `PostIncidentReview`), khớp với các fix đã áp dụng ở §2.6 và §3.4.
+
+**4.7.1 Sequence Diagram — Xử lý Automation & AI Operations**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AI as AI Agent (Investigation)
+    participant INC as Incident Service
+    participant DB as PostgreSQL
+    participant RESP as Responder / Incident Commander
+    participant CB as Automation Circuit Breaker
+    participant AUTO as Automation Worker
+
+    AI->>AI: Phân tích root-cause, đề xuất Remediation Action
+    AI->>INC: Post recommendation (runbook, riskLevel)
+    INC->>INC: Tính effectiveRiskLevel = max(runbook.riskLevel, serviceCriticality, circuitBreakerPenalty)
+
+    alt effectiveRiskLevel = HIGH hoặc requiresApproval = true
+        INC->>RESP: Yêu cầu Human Approval (kèm evidence từ AI_INVESTIGATION)
+        RESP->>RESP: Xem xét bằng chứng, mức rủi ro
+        RESP->>INC: POST /automation/{id}/approve (approve/reject)
+        INC->>DB: INSERT automation_approvals (bất biến, evidenceSnapshotRef)
+
+        alt Approved
+            INC->>CB: Kiểm tra automation_rate_limits (15 phút gần nhất)
+            alt Chưa vượt ngưỡng
+                CB->>AUTO: Cho phép thực thi
+                AUTO->>AUTO: Thực thi runbook
+                AUTO->>INC: AutomationExecuted
+                INC->>DB: UPDATE automation_executions, tăng rate_limits
+            else Vượt ngưỡng (flapping)
+                CB-->>INC: Chặn thực thi, cảnh báo circuit breaker
+            end
+        else Rejected
+            INC-->>RESP: Đề xuất bị huỷ, xử lý thủ công
+        end
+
+    else effectiveRiskLevel = LOW (pre-authorized theo policy)
+        INC->>CB: Kiểm tra automation_rate_limits
+        CB->>AUTO: Cho phép thực thi (không cần approval per-instance)
+        AUTO->>AUTO: Thực thi runbook
+        AUTO->>INC: AutomationExecuted
+        INC->>DB: UPDATE automation_executions, tăng rate_limits
+    end
+```
+
+**4.7.2 Sequence Diagram — Escalation & Notification (an toàn với race condition)**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SCHED as Escalation Scheduler
+    participant ESC as Escalation Worker
+    participant LOCK as Redis (distributed lock)
+    participant PG as PostgreSQL (incidents)
+    participant RESP as On-call Responder
+    participant NOTIFY as Notification Worker
+
+    Note over SCHED: Level 1 timeoutMinutes hết hạn cho INC-1001 (version=3)
+    SCHED->>ESC: Trigger escalation job (incidentId, expectedVersion=3)
+
+    par Nhánh hệ thống — Escalation Worker
+        ESC->>LOCK: SET lock:incident:INC-1001 NX PX 5000
+        LOCK-->>ESC: Lock acquired
+        ESC->>PG: SELECT status, version WHERE id = INC-1001
+        PG-->>ESC: status=TRIGGERED, version=3
+    and Nhánh con người — Responder ACK đồng thời
+        RESP->>PG: POST /incidents/INC-1001/acknowledge
+        PG->>PG: UPDATE incidents SET status=ACKNOWLEDGED, version=4 WHERE version=3
+        PG-->>RESP: 200 OK (ACKNOWLEDGED, version=4)
+    end
+
+    ESC->>PG: UPDATE incidents SET escalation_level+=1, version+=1 WHERE version=3 AND status='TRIGGERED'
+
+    alt Race thua — Responder đã ACK trước (version đã là 4)
+        PG-->>ESC: affected rows = 0
+        ESC->>ESC: Bỏ qua, không escalate (tránh phantom escalation)
+        ESC->>LOCK: Release lock
+    else Race thắng — chưa ai ACK (version vẫn = 3)
+        PG-->>ESC: affected rows = 1 (version → 4)
+        ESC->>LOCK: Release lock
+        ESC->>NOTIFY: Publish IncidentEscalated (level=2)
+        NOTIFY->>RESP: Notify toàn bộ target Level 2 (song song, có thể re-notify)
+    end
+```
+
+**4.7.3 State Diagram — Vòng đời Incident**
+
+```mermaid
+stateDiagram-v2
+    [*] --> TRIGGERED : Alert đủ điều kiện tạo Incident (UC-10)
+
+    state TRIGGERED {
+        [*] --> Level1
+        Level1 --> Level2 : Timeout hết hạn, chưa ACK (UC-12)
+        Level2 --> LevelN : Timeout hết hạn, chưa ACK
+        LevelN --> LevelN : Đã ở level cuối — re-notify toàn team
+    }
+
+    TRIGGERED --> ACKNOWLEDGED : Responder acknowledge (UC-11)\nEscalation timer dừng
+    TRIGGERED --> RESOLVED : Auto-resolve (event RESOLVE cùng dedupKey)
+    ACKNOWLEDGED --> RESOLVED : Responder resolve (UC-19)\nhoặc Auto-resolve
+
+    RESOLVED --> [*] : Giải phóng dedup key (DEL dedup:key)\nYêu cầu AI Postmortem (UC-25)
+```
+
+**4.7.4 State Diagram — Vòng đời Post-Incident Review (PIR)**
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : AI Postmortem Agent tạo bản nháp (UC-25)\nsau khi Incident RESOLVED
+
+    DRAFT --> IN_REVIEW : Incident Commander / Team Manager bắt đầu review (UC-26)
+    IN_REVIEW --> DRAFT : Yêu cầu AI soạn lại / bổ sung bằng chứng
+    IN_REVIEW --> APPROVED : Nội dung + action items được duyệt
+    APPROVED --> COMPLETED : Toàn bộ action item (BUG_FIX, INFRASTRUCTURE,\nMONITORING, PROCESS, DOCUMENTATION, SECURITY) hoàn tất
+
+    COMPLETED --> [*] : Lưu vào Knowledge Base\n(context cho AI Investigation sau này)
+```
+
+> **Lưu ý:** cạnh `IN_REVIEW → DRAFT` ở sơ đồ PIR là bổ sung hợp lý ngoài mô tả gốc ở §3.5 (vốn chỉ liệt kê chuỗi trạng thái tiến thẳng `DRAFT → IN_REVIEW → APPROVED → COMPLETED`), phản ánh thực tế review thường yêu cầu chỉnh sửa lại bản nháp trước khi duyệt.
 
 ---
 
