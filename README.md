@@ -1077,21 +1077,25 @@ sequenceDiagram
 
 | Domain | Bảng chính |
 |---|---|
-| Identity & Access | `users`, `roles`, `permissions`, `user_roles`, `organizations`, `teams`, `team_members` |
-| Service & Integration | `services`, `service_dependencies`, `service_integrations`, `maintenance_windows` |
+| Identity & Access | `users`, `roles`, `permissions`, `user_roles`, `role_permissions`, `organizations`, `teams`, `team_members` |
+| Service & Integration | `services`, `service_dependencies`, `integrations`, `maintenance_windows` |
 | Event & Alert Processing | `events`, `alerts`, `alert_groups`, `routing_rules`, `orchestration_rules`, `idempotency_keys` |
 | Incident Management | `incidents` (kèm cột `version` cho optimistic locking), `incident_alerts`, `incident_events`, `incident_notes`, `incident_responders` (kèm cột `role`: Incident Commander/Technical Lead/Communications Lead/Scribe/Responder), `incident_subscribers` |
-| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` (hỗ trợ nhiều target/level + `repeatCount`) |
+| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` (kèm `repeatCount`/`repeatIntervalMinutes`), `escalation_rule_targets` (junction — mỗi rule có thể có **nhiều target song song**: nhiều `USER`/`SCHEDULE`/`TEAM` trong cùng một level) |
 | Notification | `notification_rules`, `notification_deliveries` |
 | Automation & Workflow | `workflows`, `workflow_steps`, `workflow_executions`, `runbooks`, `automation_actions`, `automation_approvals`, `automation_executions`, `automation_rate_limits` |
 | Knowledge & AI | `knowledge_documents`, `knowledge_chunks`, `embeddings`, `ai_agents`, `ai_sessions`, `ai_tool_calls`, `ai_investigations` |
 | Governance & Analytics | `post_incident_reviews`, `post_incident_actions`, `audit_logs`, `slo_configs`, `service_metrics` |
+
+> **Sửa sau audit:** đổi tên `service_integrations` → `integrations` cho khớp entity `INTEGRATION` ở ERD §5.3 (trước đây hai nơi dùng hai tên khác nhau cho cùng một bảng); bổ sung `role_permissions` (đã có trong ERD nhưng thiếu ở bảng này) và `escalation_rule_targets` (bảng thực sự hiện thực tính năng multi-target/level đã mô tả ở §3.3 nhưng trước đây chỉ có ghi chú, chưa có bảng).
 
 ### 5.2 Quan hệ Entity Cốt lõi
 
 Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu một hoặc nhiều `Services`. Mỗi `Service` liên kết với một `Integration` (cho event ingestion), một `EscalationPolicy` (cho routing), một `Schedule` (để resolve on-call), và tập hợp `Dependencies` với các service khác. `Events` đầu vào được chuyển thành `Alerts` gắn với một `Service`; các `Alerts` liên quan được gộp vào một `Incident`, incident này tích luỹ `Responders` (mỗi responder có một `role` — Incident Commander, Technical Lead, Communications Lead, Scribe, hoặc Responder), một `Timeline`, `Notes`, `Status Updates`, một hoặc nhiều `AI Investigation`, các lần thực thi `Automation` kèm `Approval` tương ứng, và cuối cùng là một `Postmortem`.
 
 **Bổ sung sau kiểm toán (audit fix N6).** Chuỗi truy vết `Incident → AI Investigation → Automation Action → Approval → Execution` trước đây không có trong ERD dù là trụ cột của cơ chế Human Approval Gate (§2.6) — nếu không có bản ghi bất biến "AI đã trình bày bằng chứng gì tại thời điểm approve", hệ thống không thể audit lại quyết định approve sau này. ERD dưới đây bổ sung đầy đủ chuỗi này, cùng với RBAC (`Role`/`Permission`) và `AuditLog` — trước đó chỉ xuất hiện ở bảng tổng quan §5.1 chứ chưa có trong sơ đồ quan hệ.
+
+**Sửa sau audit (vòng 2).** Ba khoảng trống được phát hiện và vá ở ERD dưới đây: **(1)** `SERVICE_DEPENDENCY` trước đây chỉ có một cạnh quan hệ dù bản chất là self-referencing many-to-many (Service phụ thuộc Service khác) — nay thêm cạnh thứ hai; **(2)** `ESCALATION_RULE` trước đây trỏ thẳng tới `SCHEDULE` (target đơn), không khớp với tính năng multi-target/level đã mô tả ở §3.3 — nay thay bằng junction `ESCALATION_RULE_TARGET` (polymorphic `targetType`/`targetId`); **(3)** `automation_rate_limits` đã có ở bảng tổng quan §5.1 nhưng chưa từng xuất hiện trong ERD dù là trụ cột của Automation Circuit Breaker (§2.6) — nay bổ sung đầy đủ. `idempotency_keys` **chủ động không đưa vào ERD**: bảng này không có quan hệ FK với entity nào khác (khoá bằng chuỗi `key`, không phải quan hệ), nên không thuộc phạm vi "core relationships" của sơ đồ này.
 
 ### 5.3 Sơ đồ Quan hệ Thực thể (ERD)
 
@@ -1102,11 +1106,12 @@ erDiagram
     TEAM ||--o{ TEAM_MEMBER : has
     USER ||--o{ TEAM_MEMBER : "belongs to"
     TEAM ||--o{ SERVICE : owns
-    SERVICE ||--o{ SERVICE_DEPENDENCY : "depends on"
+    SERVICE ||--o{ SERVICE_DEPENDENCY : "depends on (serviceId)"
+    SERVICE_DEPENDENCY }o--|| SERVICE : "points to (dependsOnServiceId)"
     SERVICE ||--o{ INTEGRATION : has
     SERVICE ||--o| ESCALATION_POLICY : uses
     ESCALATION_POLICY ||--o{ ESCALATION_RULE : contains
-    ESCALATION_RULE }o--|| SCHEDULE : targets
+    ESCALATION_RULE ||--o{ ESCALATION_RULE_TARGET : "có nhiều target song song"
     SCHEDULE ||--o{ SCHEDULE_LAYER : contains
     INTEGRATION ||--o{ EVENT : receives
     EVENT ||--o| ALERT : "processed into"
@@ -1132,6 +1137,8 @@ erDiagram
     AUTOMATION_ACTION ||--o| AUTOMATION_APPROVAL : requires
     AUTOMATION_APPROVAL }o--|| USER : "decided by"
     AUTOMATION_ACTION ||--o| AUTOMATION_EXECUTION : triggers
+    SERVICE ||--o{ AUTOMATION_RATE_LIMIT : "đếm theo cửa sổ thời gian"
+    RUNBOOK ||--o{ AUTOMATION_RATE_LIMIT : "đếm theo cửa sổ thời gian"
 
     ORGANIZATION {
         uuid id PK
@@ -1149,16 +1156,29 @@ erDiagram
         string criticality
         string status
     }
+    SERVICE_DEPENDENCY {
+        uuid id PK
+        uuid serviceId FK
+        uuid dependsOnServiceId FK
+    }
+    EVENT {
+        uuid id PK
+        uuid integrationId FK
+        string eventType "ALERT | RESOLVE"
+        string dedupKey
+        string severity
+        timestamp receivedAt
+    }
     ALERT {
         uuid id PK
         string dedupKey
         string severity
-        string status
+        string status "OPEN | RESOLVED"
     }
     INCIDENT {
         uuid id PK
         string incidentNumber
-        string status
+        string status "TRIGGERED | ACKNOWLEDGED | RESOLVED"
         string priority
         int version
     }
@@ -1167,6 +1187,12 @@ erDiagram
         uuid incidentId FK
         uuid userId FK
         string role
+    }
+    ESCALATION_RULE_TARGET {
+        uuid id PK
+        uuid escalationRuleId FK
+        string targetType "USER | SCHEDULE | TEAM"
+        uuid targetId
     }
     ROLE {
         uuid id PK
@@ -1193,6 +1219,14 @@ erDiagram
         float confidenceScore
         timestamp createdAt
     }
+    AI_TOOL_CALL {
+        uuid id PK
+        uuid aiInvestigationId FK
+        string toolName
+        jsonb input
+        jsonb output
+        timestamp calledAt
+    }
     RUNBOOK {
         uuid id PK
         uuid serviceId FK
@@ -1210,9 +1244,21 @@ erDiagram
         uuid id PK
         uuid automationActionId FK
         uuid approvedBy FK
-        string decision
+        string decision "APPROVED | REJECTED"
         timestamp decidedAt
         string evidenceSnapshotRef
+    }
+    AUTOMATION_EXECUTION {
+        uuid id PK
+        uuid automationActionId FK
+        string status "SUCCESS | FAILED"
+        timestamp executedAt
+    }
+    AUTOMATION_RATE_LIMIT {
+        uuid serviceId PK
+        uuid runbookId PK
+        timestamp windowStart PK
+        int executionCount
     }
 ```
 
@@ -1223,27 +1269,44 @@ erDiagram
 ### 6.1 Nguyên tắc Thiết kế
 
 - **Hai bề mặt API riêng biệt.** Một **Events API** machine-generated (`POST /api/v1/events`) tối ưu cho throughput ingestion cao, xác thực bằng API key theo integration, tách biệt khỏi **Management API** hướng resource dùng cho cấu hình và thao tác do con người thực hiện, xác thực bằng **JWT** (cặp access + refresh token).
-- **Versioning.** Toàn bộ endpoint nằm dưới namespace `/api/v1/`; breaking change yêu cầu thêm version segment mới thay vì sửa trực tiếp một contract đang tồn tại.
+- **Versioning.** Toàn bộ endpoint nằm dưới namespace `/api/v1/`; breaking change yêu cầu thêm version segment mới thay vì sửa trực tiếp một contract đang tồn tại. Version cũ được giữ tối thiểu 6 tháng sau khi version mới phát hành, kèm header `Sunset` báo ngày ngừng hỗ trợ.
 - **Đặt tên hướng resource.** Endpoint dùng danh từ số nhiều và các HTTP verb chuẩn (`GET`, `POST`, `PATCH`, `DELETE`); các hành động thay đổi trạng thái không thuần CRUD được biểu diễn dưới dạng sub-resource hoặc verb (`POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/escalate`).
-- **Idempotency.** Mọi lời gọi `POST /api/v1/events` phải an toàn khi retry: client gửi kèm header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain), và cùng một key khi gửi lại sẽ trả về kết quả gốc thay vì tạo hiệu ứng phụ trùng lặp.
-- **Định dạng lỗi nhất quán.** Lỗi trả về dưới dạng body có cấu trúc (`code`, `message`, `details`) thay vì một chuỗi text thuần, để cả UI và các integration đều có thể xử lý rẽ nhánh theo `code`.
+- **Idempotency-Key và dedupKey — hai lớp bảo vệ khác nhau, không thay thế nhau.** `Idempotency-Key` (HTTP header, bắt buộc trên mọi `POST /api/v1/events`) chống trùng lặp do **retry mạng** ở tầng vận chuyển — cùng key trả về đúng response đã lưu (xem `idempotency_keys`, §2.6). `dedupKey` (trường ở tầng domain, bắt buộc trong body) chống trùng lặp **nghiệp vụ** theo thời gian — nhiều request khác nhau, hợp lệ, nhưng cùng phản ánh một sự cố đang mở thì gộp thành một alert (xem `uniq_open_dedup`, §2.6). Một request thiếu `dedupKey` vẫn được `Idempotency-Key` bảo vệ khỏi trùng do retry, nhưng **không** được bảo vệ khỏi tạo alert trùng về mặt nghiệp vụ — do đó `dedupKey` là bắt buộc, không phải lựa chọn thay thế cho `Idempotency-Key`.
+- **Authorization theo permission code.** Mỗi endpoint của Management API được gắn với một hoặc nhiều permission code cụ thể (`INCIDENT_ACK`, `ESCALATION_MANAGE`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) kiểm tra qua middleware trước khi vào business logic, resolve từ `USER → USER_ROLE → ROLE → ROLE_PERMISSION → PERMISSION` (xem ERD §5.3). Thiếu permission trả về `403` kèm `code: PERMISSION_DENIED`, không phải `401` (vốn dành riêng cho thiếu/hết hạn xác thực).
+- **Định dạng lỗi nhất quán.** Lỗi trả về dưới dạng body có cấu trúc (`code`, `message`, `details`) thay vì một chuỗi text thuần, để cả UI và các integration đều có thể xử lý rẽ nhánh theo `code` (ví dụ minh hoạ ở §6.3).
+- **Quy ước HTTP status code.** `200` cho GET/action thành công; `201` cho tạo mới resource; `202` cho request được nhận nhưng xử lý bất đồng bộ (ví dụ AI investigation); `204` cho action thành công không có response body; `4xx` cho lỗi phía client (`400` sai định dạng, `401` chưa xác thực, `403` thiếu quyền, `404` không tồn tại, `409` xung đột — ví dụ `Idempotency-Key` trùng nhưng request body khác hash, `429` vượt rate limit); `5xx` cho lỗi phía server.
 - **Pagination.** Các endpoint dạng list chấp nhận tham số `page`/`size` (hoặc cursor-based `after`) và trả về một envelope nhất quán kèm tổng số bản ghi và cursor cho trang tiếp theo.
 - **Rate limiting.** Áp dụng theo từng integration key tại biên Events API; hạn mức và phần còn lại được trả về qua header `X-RateLimit-*`.
 
 ### 6.2 Tổng quan Resource API
 
-| Domain | Endpoint chính |
-|---|---|
-| Auth | `POST /auth/login`, `POST /auth/refresh`, `GET /users/me` |
-| Organizations & Teams | `POST /organizations`, `POST /teams`, `POST /teams/{id}/members` |
-| Services | `POST /services`, `GET /services`, `GET /services/{id}`, `PATCH /services/{id}` |
-| Events (ingestion) | `POST /events` |
-| Alerts | `GET /alerts`, `GET /alerts/{id}`, `POST /alerts/{id}/resolve` |
-| Incidents | `POST /incidents`, `GET /incidents/{id}`, `POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/resolve`, `POST /incidents/{id}/escalate`, `POST /incidents/{id}/responders`, `POST /incidents/{id}/notes` |
-| Schedules | `POST /schedules`, `GET /schedules/{id}/on-call`, `POST /schedules/{id}/overrides` |
-| Escalation Policies | `POST /escalation-policies`, `GET /escalation-policies` |
-| AI | `POST /ai/incidents/{id}/triage`, `POST /ai/incidents/{id}/investigate`, `POST /ai/incidents/{id}/summarize`, `POST /ai/incidents/{id}/recommendations` |
-| Automation | `GET /runbooks`, `POST /runbooks/{id}/execute`, `POST /automation/{id}/approve` |
+> **Sửa sau audit:** bảng dưới đây trước đây chỉ phủ khoảng 23/31 use case ở Mục 4. Bổ sung các domain còn thiếu: RBAC (UC-02), Service Dependency (UC-05), Maintenance Window (UC-29), SLO (UC-28), Post-Incident Review (UC-26), Analytics (UC-27), Status Page (UC-31), Audit Log (UC-30).
+
+| Domain | Endpoint chính | Use Case |
+|---|---|---|
+| Auth | `POST /auth/login`, `POST /auth/refresh`, `GET /users/me` | UC-01 |
+| RBAC | `GET /roles`, `POST /users/{id}/roles`, `GET /permissions` | UC-02 |
+| Organizations & Teams | `POST /organizations`, `POST /teams`, `POST /teams/{id}/members` | UC-03 |
+| Services | `POST /services`, `GET /services`, `GET /services/{id}`, `PATCH /services/{id}` | UC-04 |
+| Service Dependencies | `POST /services/{id}/dependencies`, `GET /services/{id}/dependencies` | UC-05 |
+| Integrations | `POST /services/{id}/integrations` | UC-06 |
+| Events (ingestion) | `POST /api/v1/events` | UC-07 |
+| Orchestration Rules | `POST /orchestration-rules`, `GET /orchestration-rules` | UC-08 |
+| Alerts | `GET /alerts`, `GET /alerts/{id}`, `POST /alerts/{id}/resolve` | UC-09 |
+| Incidents | `POST /incidents`, `GET /incidents/{id}`, `POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/resolve`, `POST /incidents/{id}/escalate`, `POST /incidents/{id}/responders`, `POST /incidents/{id}/notes`, `POST /incidents/{id}/status-updates` | UC-10, 11, 12, 17, 18, 19 |
+| Schedules | `POST /schedules`, `GET /schedules/{id}/on-call`, `POST /schedules/{id}/overrides` | UC-13, 14 |
+| Escalation Policies | `POST /escalation-policies`, `GET /escalation-policies` | UC-15 |
+| Notifications | `GET /notifications`, `PATCH /notification-rules/{id}` | UC-16 |
+| AI | `POST /ai/incidents/{id}/triage`, `POST /ai/incidents/{id}/investigate`, `POST /ai/incidents/{id}/summarize`, `GET /knowledge/search` | UC-22, 23, 24, 25 |
+| Automation | `GET /runbooks`, `POST /runbooks/{id}/execute`, `POST /automation/{id}/approve` | UC-20, 21 |
+| Post-Incident Review | `GET /incidents/{id}/pir`, `PATCH /pir/{id}`, `POST /pir/{id}/approve` | UC-26 |
+| Analytics | `GET /analytics/metrics` (MTTA/MTTR/MTTD), `GET /analytics/alert-funnel` | UC-27 |
+| SLO | `POST /services/{id}/slo`, `GET /services/{id}/slo/burn-rate` | UC-28 |
+| Maintenance Windows | `POST /services/{id}/maintenance-windows` | UC-29 |
+| Audit Log | `GET /audit-logs` | UC-30 |
+| Status Page | `GET /status-page`, `PATCH /status-page` | UC-31 |
+
+**Kênh realtime (ngoài REST).** UC-17 (Incident War Room) dùng WebSocket, không phải REST: `wss://api.nexusops.io/v1/incidents/{id}/live`, xác thực bằng access token JWT hiện có (truyền qua subprotocol header, không truyền qua query string để tránh lộ token trong access log). Kênh này chỉ dùng để đẩy realtime (timeline, chat, trạng thái AI đang investigate); mọi hành động ghi dữ liệu (thêm note, đổi trạng thái) vẫn đi qua REST endpoint tương ứng ở trên, WebSocket không nhận ghi trực tiếp.
 
 ### 6.3 Event Ingestion Contract
 
@@ -1260,6 +1323,29 @@ Idempotency-Key: payment-cpu-high-2026-09-16T10:00:00Z
   "summary": "CPU > 95%",
   "timestamp": "2026-09-16T10:00:00Z",
   "dedupKey": "payment-cpu-high"
+}
+```
+
+Auto-resolve (khớp `dedupKey` của alert đang mở, xem §3.3) dùng cùng endpoint với `eventType: "RESOLVE"`:
+
+```json
+{
+  "source": "prometheus",
+  "service": "payment-service",
+  "eventType": "RESOLVE",
+  "timestamp": "2026-09-16T10:12:00Z",
+  "dedupKey": "payment-cpu-high"
+}
+```
+
+Ví dụ response lỗi, đúng định dạng nhất quán đã nêu ở §6.1 (`code`/`message`/`details`):
+
+```json
+HTTP/1.1 409 Conflict
+{
+  "code": "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY",
+  "message": "Idempotency-Key đã được dùng với một request body khác",
+  "details": { "idempotencyKey": "payment-cpu-high-2026-09-16T10:00:00Z" }
 }
 ```
 
