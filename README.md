@@ -1097,6 +1097,8 @@ Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu m�
 
 **Sửa sau audit (vòng 2).** Ba khoảng trống được phát hiện và vá ở ERD dưới đây: **(1)** `SERVICE_DEPENDENCY` trước đây chỉ có một cạnh quan hệ dù bản chất là self-referencing many-to-many (Service phụ thuộc Service khác) — nay thêm cạnh thứ hai; **(2)** `ESCALATION_RULE` trước đây trỏ thẳng tới `SCHEDULE` (target đơn), không khớp với tính năng multi-target/level đã mô tả ở §3.3 — nay thay bằng junction `ESCALATION_RULE_TARGET` (polymorphic `targetType`/`targetId`); **(3)** `automation_rate_limits` đã có ở bảng tổng quan §5.1 nhưng chưa từng xuất hiện trong ERD dù là trụ cột của Automation Circuit Breaker (§2.6) — nay bổ sung đầy đủ. `idempotency_keys` **chủ động không đưa vào ERD**: bảng này không có quan hệ FK với entity nào khác (khoá bằng chuỗi `key`, không phải quan hệ), nên không thuộc phạm vi "core relationships" của sơ đồ này.
 
+**Sửa sau audit (vòng 3 — tầng vận hành database).** Bốn khoảng trống ở tầng "database thật sự chạy được" chứ không chỉ quan hệ logic: **(1)** `INCIDENT`/`ALERT` trước đây thiếu hẳn các trường timestamp (`triggeredAt`, `acknowledgedAt`, `resolvedAt`, `createdAt`) dù công thức MTTA/MTTR ở §3.5 tính trực tiếp từ các trường này — nay bổ sung đầy đủ, kèm `actualFailureAt` (nullable, phục vụ MTTD); **(2)** thêm `organizationId` denormalized trên `INCIDENT`/`ALERT`/`EVENT` để cô lập dữ liệu multi-tenant hiệu quả (chi tiết RLS ở §5.4); **(3)** bổ sung `POST_INCIDENT_ACTION` (action item có owner/due date, khớp luồng UC-26) và `NOTIFICATION_DELIVERY` (trạng thái gửi, khớp Retry/DLQ §2.6) — cả hai đã có tên bảng ở §5.1 nhưng trước đây vắng mặt trong ERD; **(4)** xem thêm §5.4 cho retention, partitioning, và chính sách xoá dữ liệu.
+
 ### 5.3 Sơ đồ Quan hệ Thực thể (ERD)
 
 ```mermaid
@@ -1122,6 +1124,10 @@ erDiagram
     USER ||--o{ INCIDENT_RESPONDER : "assigned as"
     INCIDENT ||--o{ INCIDENT_EVENT : logs
     INCIDENT ||--o| POST_INCIDENT_REVIEW : generates
+    POST_INCIDENT_REVIEW ||--o{ POST_INCIDENT_ACTION : contains
+    POST_INCIDENT_ACTION }o--|| USER : "owned by"
+    INCIDENT ||--o{ NOTIFICATION_DELIVERY : triggers
+    USER ||--o{ NOTIFICATION_DELIVERY : "target of"
 
     USER ||--o{ USER_ROLE : has
     ROLE ||--o{ USER_ROLE : "granted via"
@@ -1152,6 +1158,7 @@ erDiagram
     }
     SERVICE {
         uuid id PK
+        uuid teamId FK
         string name
         string criticality
         string status
@@ -1163,6 +1170,7 @@ erDiagram
     }
     EVENT {
         uuid id PK
+        uuid organizationId FK "denormalized — tenant isolation"
         uuid integrationId FK
         string eventType "ALERT | RESOLVE"
         string dedupKey
@@ -1171,16 +1179,24 @@ erDiagram
     }
     ALERT {
         uuid id PK
+        uuid organizationId FK "denormalized — tenant isolation"
         string dedupKey
         string severity
         string status "OPEN | RESOLVED"
+        timestamp createdAt
+        timestamp resolvedAt
     }
     INCIDENT {
         uuid id PK
+        uuid organizationId FK "denormalized — tenant isolation"
         string incidentNumber
         string status "TRIGGERED | ACKNOWLEDGED | RESOLVED"
         string priority
         int version
+        timestamp triggeredAt
+        timestamp acknowledgedAt
+        timestamp resolvedAt
+        timestamp actualFailureAt "nullable — nhập tay ở PIR, xem §3.5"
     }
     INCIDENT_RESPONDER {
         uuid id PK
@@ -1260,7 +1276,69 @@ erDiagram
         timestamp windowStart PK
         int executionCount
     }
+    POST_INCIDENT_ACTION {
+        uuid id PK
+        uuid postIncidentReviewId FK
+        string actionType "BUG_FIX | INFRASTRUCTURE | MONITORING | PROCESS | DOCUMENTATION | SECURITY"
+        uuid ownerId FK
+        date dueDate
+        string status "OPEN | DONE"
+    }
+    NOTIFICATION_DELIVERY {
+        uuid id PK
+        uuid incidentId FK
+        uuid targetUserId FK
+        string channel "EMAIL | SLACK | SMS | WEBSOCKET"
+        string status "SENT | FAILED | RETRYING | DLQ"
+        int retryCount
+        timestamp sentAt
+    }
 ```
+
+### 5.4 Vận hành & An toàn Dữ liệu
+
+Bốn mối quan tâm ở tầng vận hành database thực tế — không thể hiện được trên một sơ đồ ERD thuần quan hệ — nhưng là điều kiện bắt buộc để schema ở §5.3 chạy đúng và an toàn trong production.
+
+**Cô lập dữ liệu đa tổ chức (multi-tenant isolation).** `organizationId` được denormalize trực tiếp lên `incidents`, `alerts`, `events` (thay vì chỉ suy ra qua JOIN `service → team → organization`) để enable Row-Level Security ngay tại tầng Postgres, không phụ thuộc hoàn toàn vào logic ứng dụng:
+```sql
+ALTER TABLE incidents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation ON incidents
+  USING (organization_id = current_setting('app.current_org_id')::uuid);
+```
+Mọi connection từ application server set `app.current_org_id` ngay sau khi xác thực JWT; một bug logic ở tầng application (quên filter theo tenant) vẫn bị chặn ở tầng database — phòng thủ theo chiều sâu (defense in depth), không dựa vào một lớp duy nhất.
+
+**Retention & Partitioning.** Các bảng append-only tăng trưởng không giới hạn cần chính sách rõ ràng thay vì giữ vĩnh viễn trong một bảng duy nhất:
+
+| Bảng | Khối lượng | Retention | Chiến lược |
+|---|---|---|---|
+| `events` | Cao nhất (mọi tín hiệu thô) | 90 ngày chi tiết | Partition theo tháng (`RANGE` trên `received_at`) |
+| `ai_tool_calls` | Cao | 180 ngày | Partition theo tháng |
+| `notification_deliveries` | Trung bình–cao | 180 ngày | Partition theo tháng |
+| `incident_events` (timeline) | Trung bình | Theo vòng đời incident cha | Không tách retention riêng |
+| `audit_logs` | Trung bình | **Không xoá** — compliance | Partition theo năm, không drop partition cũ |
+
+```sql
+CREATE TABLE events (
+  id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL
+  -- ... các cột khác
+) PARTITION BY RANGE (received_at);
+
+CREATE TABLE events_2026_09 PARTITION OF events
+  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+-- Partition mới được tạo tự động hàng tháng (pg_partman hoặc job định kỳ);
+-- hết hạn retention thì DROP PARTITION thay vì DELETE hàng loạt (tránh bloat + khoá bảng)
+```
+
+**Bất biến của Audit Log.** §3.5 khẳng định `audit_logs` "ghi lại bất biến" — điều này phải được ép buộc ở tầng database, không chỉ là quy ước ở tầng ứng dụng:
+```sql
+REVOKE UPDATE, DELETE ON audit_logs FROM nexusops_app;
+-- Application role chỉ có quyền INSERT; sửa/xoá (nếu thật sự cần, ví dụ yêu cầu pháp lý)
+-- phải qua một role DBA riêng, ngoài đường ứng dụng, và tự nó cũng được ghi log.
+```
+
+**Chính sách xoá dữ liệu master.** `Service` không bao giờ bị hard-delete nếu đã có `Incident` tham chiếu (`ON DELETE RESTRICT` trên FK `incident.service_id`) — việc ngừng sử dụng một service được thể hiện qua `status = DISABLED` (enum đã có sẵn ở §3.2), giữ nguyên bản ghi để không phá vỡ tính toàn vẹn lịch sử của các Incident/PIR cũ đã tham chiếu tới nó.
 
 ---
 
