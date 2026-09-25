@@ -6,8 +6,8 @@
 |---|---|
 | **Loại tài liệu** | Software Project Plan & Architecture Document |
 | **Kiến trúc** | Event-driven, modular-monolith-first |
-| **Stack chính** | Java (Spring Boot), Apache **Kafka**, PostgreSQL (+ PGVector), Redis |
-| **Trạng thái** | Draft v1.2 — đã áp dụng kết quả kiểm toán kỹ thuật (technical audit) |
+| **Stack chính** | Java (Spring Boot), PostgreSQL (+ PGVector); Kafka và Redis ở giai đoạn mở rộng |
+| **Trạng thái** | Draft v1.3 — rà soát thiết kế ngày 24/09/2026; chưa xác nhận triển khai/kiểm thử runtime |
 | **Đối tượng đọc** | Đội ngũ kỹ thuật, technical stakeholders, ban giám khảo/reviewer |
 
 ---
@@ -29,7 +29,7 @@
 
 ### 1.1 Tầm nhìn Sản phẩm
 
-**NexusOps** là một nền tảng tập trung, có nhiệm vụ phát hiện các sự kiện vận hành (operational events), giảm nhiễu alert, định tuyến incident đến đúng người xử lý, điều phối quá trình phản ứng sự cố, tự động hoá remediation, và dùng **AI** để tăng tốc quá trình điều tra cũng như học hỏi sau sự cố.
+**NexusOps** là một nền tảng tập trung, có nhiệm vụ phát hiện các sự kiện vận hành (operational events), giảm nhiễu alert, định tuyến incident đến đúng người xử lý, điều phối quá trình phản ứng sự cố, tự động hoá remediation, và dùng **AI hỗ trợ** để tăng tốc quá trình điều tra cũng như học hỏi sau sự cố.
 
 Về mặt khái niệm, NexusOps nằm ở giao điểm của bốn nhóm sản phẩm đã được kiểm chứng — **PagerDuty-style incident core**, **AIOps**, **Runbook Automation**, và **AI Agent platforms** — nhưng scope được thu hẹp có chủ đích quanh một identity duy nhất, nhất quán: **Incident Operations**.
 
@@ -50,7 +50,7 @@ Vòng đời này bám sát cách các nền tảng incident management trưởn
 | Giá trị | Ý nghĩa thực tế |
 |---|---|
 | **Giảm nhiễu (noise reduction)** | Deduplication, grouping và suppression biến hàng nghìn event thô thành một số lượng nhỏ incident thực sự cần xử lý. |
-| **Định tuyến tất định** | Event orchestration rules và escalation policy đảm bảo mọi incident P1 đều tới được một người chịu trách nhiệm trong một khoảng thời gian giới hạn. |
+| **Định tuyến tất định** | Event orchestration rules và escalation policy đặt mục tiêu đưa incident P1 tới người chịu trách nhiệm theo timeout và backstop; phải đo delivery/ACK thực tế để xác nhận. |
 | **Chẩn đoán nhanh hơn** | AI agent với **tool calling** và **RAG** trên logs, deployment, dependency và các incident cũ giúp đưa ra giả thuyết root-cause chỉ trong vài phút thay vì vài giờ. |
 | **Remediation có kiểm soát** | Automation có thể thực thi runbook, nhưng mọi hành động rủi ro cao đều phải đi qua **human approval gate** — AI đề xuất, con người phê duyệt. |
 | **Tri thức tổ chức** | Mỗi incident khi đóng lại đều tạo ra một Post-Incident Review có cấu trúc, nuôi lại knowledge base phục vụ các lần AI investigation sau này. |
@@ -67,54 +67,47 @@ Identity của NexusOps được giữ hẹp có chủ đích, và không đư�
 
 ### 2.1 Phong cách Kiến trúc
 
-NexusOps được xây dựng theo **event-driven architecture**: mọi thay đổi trạng thái được publish thành domain event trên một message bus trung tâm, và các worker độc lập subscribe vào những event liên quan đến trách nhiệm của mình. Cách tiếp cận này tách rời (decouple) ingestion, orchestration, notification, escalation và AI processing, giúp hệ thống hấp thụ các đợt burst traffic từ monitoring mà không làm nghẽn phía producer.
+NexusOps theo **event-driven architecture**: các domain transition sinh event/job lưu bền trong cùng transaction; worker xử lý nghĩa vụ sau commit. Baseline dùng PostgreSQL jobs, Kafka mở rộng việc phân phối từ Phase 3. Queue giúp hấp thụ burst trong giới hạn capacity; cần admission control/backpressure và đo backlog, không bảo đảm producer không bao giờ bị nghẽn.
 
 Về mặt triển khai, hệ thống khởi đầu như một **modular monolith** (Spring Boot, một deployable duy nhất, các package tách biệt rõ ràng theo từng bounded module), và chỉ đưa Kafka-based asynchronous processing vào khi vòng đời incident lõi đã ổn định. Việc tách service khỏi monolith chỉ thực hiện khi một module thực sự có scaling/reliability profile khác biệt — không tách theo mặc định.
 
-> **Lưu ý kiến trúc (audit finding).** "Modular monolith" chỉ mô tả ranh giới **codebase**, không có nghĩa toàn bộ hệ thống phải chạy trong **một process** duy nhất. Kể từ Phase 3 (khi Kafka consumer được đưa vào), các worker bất đồng bộ (Escalation Worker, Notification Worker, AI Agent Worker, Automation Worker) được build và triển khai như một **process/deployable riêng** (cùng repository, khác entrypoint/Spring profile — ví dụ `nexusops-api` và `nexusops-worker`) tách khỏi REST API ingestion. Lý do: nếu cả hai chạy chung một JVM, một đợt burst escalation/notification trong lúc xảy ra outage lớn có thể ăn hết resource của chính API ingestion đang nhận event — tức nền tảng incident management "tự làm nghẽn chính mình" đúng lúc cần nó nhất. Tách process không vi phạm nguyên tắc modular-monolith (không tách *service*, không tách *database*), chỉ tách *runtime*.
+> **Ranh giới triển khai.** Modular Monolith mô tả cách tổ chức module và một đơn vị ứng dụng ban đầu. Khi tách API/worker thành nhiều runtime, hệ thống tiến tới triển khai phân tán dùng chung codebase/database; cần kiểm soát coupling, không chỉ đổi tên thành microservice. Kể từ Phase 3 (khi Kafka consumer được đưa vào), các worker bất đồng bộ (Escalation Worker, Notification Worker, AI Agent Worker, Automation Worker) được build và triển khai như một **process/deployable riêng** (cùng repository, khác entrypoint/Spring profile — ví dụ `nexusops-api` và `nexusops-worker`) tách khỏi REST API ingestion. Lý do: nếu cả hai chạy chung một JVM, một đợt burst escalation/notification trong lúc xảy ra outage lớn có thể ăn hết resource của chính API ingestion đang nhận event — tức nền tảng incident management "tự làm nghẽn chính mình" đúng lúc cần nó nhất. Các runtime vẫn phải tuân thủ quyền sở hữu bảng theo module, migration tương thích và hợp đồng event versioned.
 
-Về schema migration, mọi thay đổi cấu trúc bảng qua các phase (ví dụ thêm bảng `ai_investigations` ở Phase 4) đều được quản lý bằng **Flyway** (hoặc Liquibase), versioned theo từng migration script, để đảm bảo khả năng rollback và nhất quán giữa các môi trường.
+Về schema migration, mọi thay đổi cấu trúc bảng qua các phase (ví dụ thêm bảng `ai_investigations` ở Phase 4) đều được quản lý bằng **Flyway** (hoặc Liquibase), versioned theo từng migration script, để kiểm soát phiên bản và nhất quán giữa các môi trường. Migration không tự bảo đảm rollback: dùng expand/contract, backup/restore đã diễn tập và forward-fix cho thay đổi phá huỷ dữ liệu.
 
 ### 2.2 Sơ đồ Kiến trúc Tổng thể
 
+PostgreSQL là nguồn trạng thái domain. Các đường bất đồng bộ chỉ bắt đầu sau commit; ghi audit/timeline cốt lõi không phụ thuộc một Audit Worker đến sau.
+
 ```mermaid
 flowchart TB
-    subgraph EXT["Monitoring & External Systems"]
-        MON["Monitoring Tools<br/>Prometheus / Grafana / CloudWatch"]
-        CI["CI/CD & Kubernetes"]
-    end
-
-    MON --> ING["Event Ingestion<br/>REST / Webhook API"]
-    CI --> ING
-
-    ING --> ORC["Event Orchestration<br/>Rule Engine"]
-
-    ORC -->|"suppress"| SUP["Suppressed<br/>(maintenance / staging)"]
-    ORC -->|"route"| DEDUP["Dedup & Grouping Engine"]
-
-    DEDUP --> INCMGR["Incident Management"]
-    INCMGR --> BUS[["Kafka Event Bus"]]
-
-    BUS --> NOTIFY["Notification Worker"]
-    BUS --> ESCALATE["Escalation Worker"]
-    BUS --> AI["AI Agent Worker"]
-    BUS --> AUDIT["Audit Worker"]
-
-    REDIS[("Redis<br/>Locks / Scheduler / Dedup Cache")]
-    ESCALATE <-->|"timeout scheduling<br/>distributed lock"| REDIS
-
-    AI --> INVEST["AI Investigation<br/>& Recommendation"]
-    INVEST -->|"high-risk action"| APPROVAL["Human Approval Gate"]
-    APPROVAL --> AUTOMATION["Automation Worker<br/>Runbook Execution"]
-
-    NOTIFY --> RESPONDER["On-call Responder"]
-    ESCALATE --> RESPONDER
-    AUTOMATION --> RESOLVE["Incident Resolution"]
-    RESPONDER --> RESOLVE
-
-    RESOLVE --> PIR["Post-Incident Review"]
-    PIR --> KNOW[("Knowledge Base")]
-    KNOW -.->|"retrieval context"| INVEST
+    MON["Monitoring / CI-CD"] --> ING["Ingestion: auth, rate limit, idempotency"]
+    ING --> DOMAIN["Orchestration / Dedup / Grouping / Incident"]
+    DOMAIN -->|"Một transaction"| PG[("PostgreSQL: domain, timeline, audit, jobs, outbox")]
+    PG --> JOB["DB Job Worker: baseline"]
+    PG --> RELAY["Outbox Relay: Phase 3"]
+    RELAY --> BUS["Kafka: Phase 3"]
+    JOB --> NOTIFY["Notification Worker"]
+    BUS --> NOTIFY
+    JOB --> AI["AI Investigation: chỉ đọc tool"]
+    BUS --> AI
+    PG --> TIMER["Durable Escalation Scheduler"]
+    TIMER -->|"Transition và job trong transaction"| PG
+    REDIS[("Redis: cache, wake-up, lock tối ưu")]
+    REDIS -.-> TIMER
+    NOTIFY --> INBOX["Inbox lưu bền / Email / Kênh mở rộng"]
+    INBOX --> RESP["Responder / Commander"]
+    AI --> ACTION["Action snapshot / Risk policy"]
+    ACTION --> GATE["Approval hoặc pre-authorization hợp lệ"]
+    RESP --> GATE
+    GATE --> LIMIT["Atomic rate reservation / Circuit Breaker"]
+    LIMIT --> AUTO["Automation Worker / Sandbox executor"]
+    AUTO -->|"Outcome và evidence"| PG
+    RESP -->|"ACK / Resolve"| DOMAIN
+    MON -->|"Recovery event đúng episode"| ING
+    PG --> PIR["PIR draft và human review"]
+    PIR --> KB[("Knowledge Base / PGVector")]
+    KB -.->|"Retrieval có kiểm tra quyền"| AI
 ```
 
 ### 2.3 Luồng Dữ liệu Cốt lõi
@@ -123,87 +116,60 @@ Một tín hiệu thô không bao giờ được xử lý trực tiếp như m�
 
 ### 2.4 Messaging Backbone — Kafka
 
-Kafka là system of record cho việc phối hợp giữa các module. Các domain event chính được publish lên bus:
+Kafka là message backbone từ Phase 3, **không phải nguồn trạng thái domain** và không thay durable timer. Phase 1–2 dùng DB-backed jobs; không bắt buộc Kafka để gửi thông báo an toàn. Domain mutation, timeline, audit và job/outbox tương ứng được ghi trong cùng transaction. Relay chỉ publish bản ghi đã commit; publish thành công rồi crash trước khi đánh dấu có thể tạo bản sao, nên consumer phải idempotent. Đây là cách áp dụng [Transactional Outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html).
 
 | Nhóm | Domain events |
 |---|---|
-| Ingestion & Alerting | `EventReceived`, `AlertCreated`, `AlertDeduplicated`, `AlertGrouped` |
-| Vòng đời Incident | `IncidentCreated`, `IncidentAcknowledged`, `IncidentEscalated`, `IncidentResolved` |
-| Điều phối phản ứng | `ResponderAdded`, `NotificationRequested`, `NotificationSent` |
-| AI processing | `AIInvestigationStarted`, `AIInvestigationCompleted` |
-| Automation | `AutomationRequested`, `AutomationApproved`, `AutomationExecuted` |
+| Ingestion & Alerting | `EventReceived`, `EventSuppressed`, `AlertCreated`, `AlertDeduplicated`, `AlertGrouped`, `AlertResolved` |
+| Incident | `IncidentCreated`, `IncidentUpdated`, `IncidentAcknowledged`, `IncidentEscalated`, `IncidentResolved`, `EscalationExhausted` |
+| Phản ứng | `ResponderAdded`, `NotificationRequested`, `NotificationSent`, `NotificationFailed` |
+| AI | `AIInvestigationStarted`, `AIInvestigationCompleted`, `AIInvestigationFailed` |
+| Automation | `AutomationRequested`, `AutomationApproved`, `AutomationExecutionCompleted` |
 | Governance | `PIRCreated` |
 
-**Partitioning strategy.** Mọi topic liên quan tới một incident cụ thể (`IncidentCreated`, `IncidentEscalated`, `IncidentResolved`, `AutomationRequested`,...) được partition theo key `incidentId`. Điều này đảm bảo **ordering** trong phạm vi một incident (event của cùng một incident luôn được một consumer xử lý tuần tự, đúng thứ tự) trong khi vẫn scale ngang được giữa các incident khác nhau. Topic `EventReceived` (trước khi có incident) được partition theo `serviceId`.
+Envelope gồm `eventId`, `eventType`, `schemaVersion`, `organizationId`, `aggregateType`, `aggregateId`, `aggregateVersion`, `occurredAt`, `correlationId`, `payload`. Các transition lifecycle incident vào **một topic** `incident.lifecycle.v1`, key `incidentId`; mỗi mutation incident có một lifecycle envelope tại version mới (IncidentUpdated cho thay đổi khác), payload có thể chứa các sub-events; relay giữ thứ tự version trong từng aggregate, không publish bản kế tiếp trước bản trước. Consumer không xử lý song song mất thứ tự cùng partition, chỉ commit offset sau DB commit; lưu `consumer_receipts(consumer_name,event_id)` cùng hiệu ứng DB. Stream trước incident có thể key theo `serviceId`.
+
+Kafka chỉ giữ thứ tự trong một partition; cùng key ở các topic khác nhau không tạo thứ tự chung. Với projection cần đủ transition, kiểm tra version/gap và replay hoặc rebuild; với job side effect, dùng identity riêng và revalidate trạng thái hiện tại. Retry/DLQ có thể làm thay đổi thứ tự, không được bỏ qua gap rồi áp dụng mù. Không tuyên bố exactly-once đối với email hoặc executor bên ngoài. Xem [Apache Kafka — Design](https://kafka.apache.org/41/design/design/).
 
 ### 2.5 Distributed State — Redis
 
-Redis phục vụ mọi loại trạng thái cần được chia sẻ, truy xuất nhanh và tồn tại ngắn hạn giữa các worker instance chạy song song:
+Redis là thành phần tuỳ chọn từ Phase 3. Khi mất cache, correctness phải dựa vào PostgreSQL.
 
-| Use case | Mục đích |
+| Use case | Quy tắc |
 |---|---|
-| Rate limiting | Bộ đếm token-bucket theo từng integration/service |
-| Idempotency cache | Fast-path cache cho kết quả của một `Idempotency-Key` đã xử lý trước đó (nguồn chân lý thực sự là unique constraint ở PostgreSQL — xem §2.6) |
-| Dedup keys | Tra cứu nhanh `dedup:<key>` để xác định event có map vào alert đang mở hay không; key được `DEL` ngay khi alert `RESOLVED` (không chỉ dựa TTL — xem §2.6) |
-| Distributed locks | Ngăn hai worker cùng thao tác trên một incident đồng thời; TTL ngắn (≤5s) kèm fencing token, không dùng làm nguồn đúng-sai duy nhất (xem §2.6) |
-| On-call cache | Tra cứu responder hiện tại mà không cần gọi lại schedule engine mỗi lần page |
-| Escalation scheduler | Theo dõi các escalation timeout đang chờ mà không giữ một HTTP connection mở |
-| AI session state | Context ngắn hạn cho một phiên investigation của agent đang chạy |
+| Rate limiting | Token bucket nguyên tử theo integration; nếu Redis lỗi dùng giới hạn bảo thủ tại gateway, không âm thầm bỏ hạn mức |
+| Idempotency cache | Key theo org/integration/key, chứa hash và response; chỉ ghi sau commit |
+| Dedup cache | `dedup:<org>:<integration>:<service>:<key>`; xác nhận alert còn OPEN ở DB; xoá bằng compare-and-delete theo alertId |
+| Distributed lock | TTL + owner token; release chỉ nếu đúng owner; chỉ giảm tranh chấp, không thay DB lock/CAS |
+| On-call cache | Có version/expiry; routing lưu snapshot target đã chọn |
+| Escalation wake-up | Tăng tốc đánh thức worker; `incidents.escalate_at` trong DB vẫn là deadline bền; quét DB phục hồi sau restart/mất Redis |
+| AI context cache | Có thể bỏ; investigation/tool history và evidence cần audit phải lưu DB |
 
 ### 2.6 Các Pattern Reliability trong Hệ thống Phân tán
 
-Các pattern dưới đây được xem là yêu cầu kiến trúc bắt buộc, không phải phần "hardening thêm nếu còn thời gian". Đây cũng là phần được cập nhật trực tiếp từ kết quả kiểm toán kỹ thuật (technical audit) — mỗi mục đều nêu rõ **nguồn chân lý (source of truth)** thay vì chỉ dựa vào Redis như một lớp cache có thể mất dữ liệu.
+**Idempotency.** `Idempotency-Key` chống retry HTTP; `dedupKey` chống trùng nghiệp vụ; không thay thế nhau. Xác thực integration và quyền service trước lookup. Request identity là `(integration_id, key)`; integration thuộc một organization. SHA-256 trên JSON canonical đã validate (sắp thứ tự object keys, chuẩn hoá số/time, giữ thứ tự array), kèm method/path/API version; không hash `toString()`. Cache hit cũng so hash: khác body trả `409`.
 
-**Idempotency.** Hệ thống monitoring thường xuyên gửi lại cùng một event (do retry mạng, at-least-once delivery). Mọi lời gọi `POST /api/v1/events` đều chấp nhận header `Idempotency-Key` (hoặc trường `dedupKey` ở tầng domain). Redis chỉ đóng vai trò **fast-path cache**; nguồn chân lý thực sự là một unique constraint ở PostgreSQL, để tránh trường hợp Redis evict key (do memory pressure) trước khi client retry, dẫn tới tạo alert trùng:
+Trong **một transaction READ COMMITTED**, INSERT claim `PROCESSING` với response nullable trước mọi hiệu ứng. Winner mới xử lý event/domain, ghi timeline/audit/job/outbox, lưu status/body/headers response, đổi `COMPLETED`, rồi commit. Không commit claim riêng. Crash trước commit rollback toàn bộ; retry sau commit replay nguyên status/body. Loser `ON CONFLICT DO NOTHING` chờ winner, sau đó **SELECT bằng statement mới** để đọc response đã commit; nếu lock timeout trả `503 IDEMPOTENCY_BUSY` kèm `Retry-After`, client retry cùng key. Không có network I/O trong transaction. Giữ key tối thiểu 7 ngày từ commit; cache không sống lâu hơn retention DB. Sau cửa sổ này không bảo đảm replay HTTP; episode watermark vẫn bảo vệ domain. Cơ chế statement snapshot tham chiếu [PostgreSQL — Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html).
 
-```sql
-CREATE TABLE idempotency_keys (
-  key             VARCHAR(255) PRIMARY KEY,
-  request_hash    VARCHAR(64) NOT NULL,   -- SHA-256 của body, phát hiện key bị tái sử dụng sai
-  response_body   JSONB NOT NULL,
-  created_at      TIMESTAMP NOT NULL DEFAULT now()
-);
-```
-Luồng xử lý: `INSERT ... ON CONFLICT (key) DO NOTHING` → nếu conflict, đọc lại `response_body` đã lưu và trả về nguyên vẹn (không xử lý lại). Redis chỉ cache kết quả của bảng này để giảm round-trip tới DB ở tải cao.
+**Dedup, grouping và episode.** Namespace dedup mặc định là `(integration_id, service_id, dedup_key)`; tránh gộp nhầm hai nguồn monitoring. Cross-integration correlation thuộc grouping, không dùng chung key mơ hồ. Baseline serialize mutation alert/group/resolve bằng `SELECT services ... FOR UPDATE`, sau đó khoá incident theo thứ tự ID; tất cả đường ingest/manual resolve tuân cùng lock order. Đổi sang lock hẹp hơn chỉ sau kiểm thử concurrency. Unique partial index OPEN là lớp chặn cuối; conflict phải retry transaction và đọc winner, không trả lỗi trùng như kết quả nghiệp vụ. Counter dùng `occurrence_count = occurrence_count + 1`; một request replay không tăng counter.
 
-**Vòng đời Dedup Key.** Vấn đề: nếu `dedupKey` không bao giờ hết hiệu lực, một sự cố lặp lại **sau khi alert cũ đã `RESOLVED`** sẽ bị gộp nhầm vào alert cũ — không tạo incident mới, không ai được page. Ràng buộc uniqueness cho dedup **chỉ áp dụng cho alert đang mở**, không áp dụng vĩnh viễn:
+Contract yêu cầu `episodeId` ổn định trong một episode và `sourceSequence` tăng đơn điệu theo namespace dedup, xuyên các episode. `alert_streams` giữ last sequence/episode/closed flag bền, kể cả khi event thô hết retention. Sequence thấp hơn hoặc bằng watermark là stale no-op có audit; sequence bằng watermark nhưng khác payload hash là `409 SOURCE_SEQUENCE_CONFLICT`; sequence thấp hơn chỉ được phân loại stale, không cần giữ mọi hash lịch sử. Episode đang mở không nhận TRIGGER khác episode (409); episode đã đóng không mở lại bằng TRIGGER trễ cùng episode. RESOLVE chỉ đóng đúng episode; mismatched episode khi đang có episode active là stale no-op, không đổi watermark/closed flag của episode active. RESOLVE chưa có alert ghi no-op, watermark/tombstone nhưng không tạo incident. Adapter chưa cung cấp được ordering/episode không được bật integration ingestion contract này; chỉ mở chế độ TRIGGER-only/manual resolve sau khi đặc tả adapter riêng, không âm thầm bỏ validation; `receivedAt` không đủ phân biệt tín hiệu cũ.
 
-```sql
-CREATE UNIQUE INDEX uniq_open_dedup
-  ON alerts (service_id, dedup_key)
-  WHERE status <> 'RESOLVED';
-```
-Ở tầng Redis: `SET dedup:<key> <alertId>` khi tạo alert; `DEL dedup:<key>` ngay khi alert chuyển `RESOLVED` (consumer riêng lắng nghe `AlertResolved`); TTL 72h chỉ để dọn rác, **không phải cơ chế reset chính**.
+Mỗi alert thuộc tối đa một incident; grouping baseline chỉ trong cùng service, theo rule/window đã cấu hình và chỉ vào incident chưa RESOLVED. Khi grouping/resolve cạnh tranh, cùng service lock quyết định thứ tự. Auto-resolve incident chỉ khi **mọi alert liên kết đã RESOLVED**. Manual resolve cần quyền và lý do; transaction đóng mọi alert OPEN liên kết, đánh dấu stream episode tương ứng đã đóng, huỷ deadline/job chưa dispatch, ghi audit và outbox. Episode mới tạo vòng đời mới, không gắn alert OPEN vào incident đã đóng. Event bị suppress lưu với `alert_id = NULL`; recovery cho episode đã theo dõi vẫn được xử lý, maintenance không nuốt RESOLVE cần thiết.
 
-**Distributed Locking & Fencing Token.** Redis lock kiểu `SETNX`/Redlock có lỗ hổng đã biết: nếu một worker bị GC-pause hoặc network delay vượt quá TTL của lock, lock tự hết hạn và một worker khác chiếm lock trong khi worker cũ vẫn tưởng mình còn giữ quyền ghi — dẫn tới hai worker cùng ghi đè. Vì vậy Redis lock **chỉ dùng để giảm tranh chấp** (tối ưu hiệu năng), còn **nguồn đúng-sai bắt buộc là optimistic locking bằng cột `version` ở PostgreSQL** (đóng vai trò fencing token thật sự):
+**Durable jobs, notifications và handoff.** State + timeline + audit + job/outbox commit nguyên tử. `jobs` có unique job key, `available_at`, lease owner/expiry, attempts và trạng thái. Worker claim bằng `FOR UPDATE SKIP LOCKED`, commit claim, gọi mạng ngoài transaction, rồi cập nhật outcome bằng owner/lease generation còn hợp lệ. Lease hết hạn cho phép reclaim; consumer/executor vẫn phải xử lý trùng an toàn. Backoff exponential + jitter, tối đa 5 attempts mặc định; quá budget vào DLQ lưu DB (Kafka có retry/DLQ tương ứng ở Phase 3). Mỗi delivery có unique key theo incident/transition/recipient/channel. Inbox lưu trước khi push WebSocket; reconnect dùng cursor API catch-up. SENT chỉ có nghĩa provider chấp nhận, không phải người đã đọc/ACK. Nếu provider không hỗ trợ idempotency hoặc query outcome, crash sau send có thể gây gửi lặp; ghi nhận hạn chế này.
 
-```sql
-UPDATE incidents
-SET escalation_level = escalation_level + 1, version = version + 1
-WHERE id = :incidentId AND version = :expectedVersion AND status = 'TRIGGERED';
--- affected rows = 0  =>  một worker/hành động khác đã xử lý trước, tự bỏ qua (không throw lỗi)
-```
+**Escalation và ACK.** Snapshot policy version/targets vào incident khi tạo. Level đầu có deadline; transaction timeout recheck `TRIGGERED`, version, level/repeat và deadline còn đúng. Re-notify trong level tối đa `repeatCount`, lần kế cách `repeatIntervalMinutes`; hết repeat mới chuyển level và đặt deadline theo timeout level mới. Level cuối hết budget: tạo một backstop notification cho manager đã cấu hình, ghi `EscalationExhausted`, đặt `escalate_at = NULL`, `escalation_exhausted = true`; không sinh level vượt policy hay loop vô hạn. ACK/RESOLVE cùng khoá/CAS, xoá deadline và cancel notification job chưa dispatch. CAS trả 0 phải đọc lại để phân biệt ACK/RESOLVE với conflict khác; nếu còn hợp lệ thì retry hữu hạn.
 
-**An toàn giữa Escalation (hệ thống) và Acknowledge (con người).** Đây là race condition dễ bị bỏ sót nhất: responder ACK đúng lúc Escalation Worker đang fire timeout cho cùng incident. Nếu worker chỉ kiểm tra trạng thái *tại thời điểm lên lịch* mà không re-check *tại thời điểm gửi*, incident vẫn bị escalate/page thêm dù vừa được ACK. Escalation Worker **luôn phải re-fetch và re-validate trạng thái ngay trước khi gửi notification**, trong cùng transaction với câu `UPDATE ... WHERE version = :expectedVersion` ở trên — không escalate dựa trên trạng thái đã đọc từ lúc lên lịch job.
+Nếu ACK commit trước thì không tạo escalation transition mới. Nếu timeout commit trước, notification có thể đã dispatch; recheck trước send giảm thông báo thừa nhưng không xoá được race giữa DB check và network send. Không giữ DB transaction trong lúc gửi và không hứa thu hồi thông báo đã gửi.
 
-**Automation Circuit Breaker & Rate Limiting.** Một action tự động (kể cả `LOW`-risk đã pre-authorize) có thể bị trigger lặp lại liên tục nếu điều kiện gây lỗi cứ tái diễn — đây là nguyên nhân đã gây ra nhiều outage lớn trên thực tế do automation tự khuếch đại sự cố (flapping loop). Mọi lần thực thi được đếm theo cửa sổ thời gian trượt:
+**Optimistic locking và Fencing Token.** `version` bảo vệ cập nhật DB bằng compare-and-swap; **không tự là Fencing Token cho tác động bên ngoài**. Fencing thật cần token đơn điệu theo resource và executor từ chối token cũ. Baseline dùng action identity + executor idempotency/reconciliation; Redis lock không chứng minh exactly-once. Khi executor không có cả dedup lẫn kiểm tra outcome, timeout phải là UNKNOWN và yêu cầu người xử lý, không retry mù.
 
-```sql
-CREATE TABLE automation_rate_limits (
-  service_id       UUID,
-  runbook_id       UUID,
-  window_start     TIMESTAMP,
-  execution_count  INT NOT NULL DEFAULT 0,
-  PRIMARY KEY (service_id, runbook_id, window_start)
-);
-```
-Nếu `execution_count` trong 15 phút gần nhất vượt ngưỡng (mặc định: 2 lần) → hệ thống **buộc chuyển sang Human Approval Gate bất kể `riskLevel` gốc**, kể cả với action đã được pre-authorize.
+**Automation rate guard và Circuit Breaker.** Chọn policy **hard stop, không override bằng approval**. Tối đa 2 reservation dispatch trong sliding window `(now - 15 phút, now]` theo `(service_id, runbook_id)`. Khoá row `automation_guards`, lấy DB clock sau khi lấy lock, đếm `automation_reservations`, và INSERT reservation unique action/execution trong cùng transaction claim thực thi. Guard row được tạo khi enable runbook/service hoặc UPSERT trước SELECT FOR UPDATE, không khoá row chưa tồn tại. Đủ 2 suất thì không dispatch, action vẫn APPROVED kèm `blocked_until`; job được dời tới khi suất cũ hết window. Approval đang chờ không chiếm suất. Reservation đã commit vẫn tính kể cả crash/FAILED/UNKNOWN; retry reconcile cùng execution không lấy suất mới. Không refund tự động. Trước dispatch luôn kiểm tra lại policy/quyền/snapshot/incident.
 
-**Retry & Dead Letter Queue (Kafka).** Việc gửi tới một kênh bên ngoài (email, SMS, chat) có thể thất bại tạm thời. Notification thất bại được retry qua topic `notification.retry` với cơ chế backoff; sau khi hết retry budget, message được chuyển sang `notification.dlq` để kiểm tra thủ công thay vì bị âm thầm loại bỏ.
+Giới hạn tần suất không phải Circuit Breaker. Breaker riêng theo `(service,runbook)`: CLOSED → OPEN khi 3 execution liên tiếp FAILED/UNKNOWN; OPEN nghỉ 15 phút, rồi HALF_OPEN cho đúng một probe được reserve nguyên tử. Probe SUCCEEDED → CLOSED/reset failure count; FAILED/UNKNOWN → OPEN lại. Probe vẫn cần approval/pre-authorization và rate slot. Lease probe mất phải reconcile outcome, không cấp probe thứ hai trong khi chưa xác định. Mỗi execution chỉ đóng góp một outcome đầu tiên cho failure counter; reconcile UNKNOWN sau đó không tăng lỗi lần hai. Counter và probe state cập nhật dưới cùng guard lock; một success thường reset chuỗi lỗi khi CLOSED, không tự đóng OPEN do execution cũ hoàn tất muộn. State/cooldown lưu bền ở `automation_guards`; UI hiển thị lý do blocked, approval không bypass hai guard.
 
-**Rate Limiting (Ingestion).** Một integration hoạt động sai (gửi hàng nghìn event/giây) không được phép làm suy giảm hiệu năng toàn hệ thống. Một Redis token-bucket limiter áp mức trần theo từng integration/service (ví dụ 100 request/giây) ngay tại biên ingestion.
-
-> **Ghi chú thiết kế — không có mâu thuẫn giữa Escalation, AI và Human Approval.** Escalation chỉ có một mục tiêu duy nhất: *đưa được một con người vào xử lý* trong một khoảng thời gian giới hạn (chuỗi paging, độc lập với AI). AI Triage và AI Investigation chạy **song song** với escalation, không thay thế escalation — chúng tăng tốc chẩn đoán trong khi đồng hồ timeout của paging vẫn chạy độc lập (và luôn được re-validate ngay trước khi fire, như mô tả ở trên). **Human Approval Gate** chỉ áp dụng cho các *hành động remediation* do AI đề xuất và được phân loại rủi ro cao (bao gồm cả trường hợp bị nâng risk do vi phạm circuit breaker ở trên); nó không thay thế cho escalation, và không tạm dừng hay chặn escalation timer. Người phê duyệt là responder đang được assign hoặc Incident Commander, được xác định qua cùng một permission RBAC (`AUTOMATION_EXECUTE`) dùng xuyên suốt nền tảng. Với action `LOW`-risk, "đã có sự cho phép của con người" nghĩa là một **chính sách được con người cấu hình từ trước** (pre-authorization ở cấp runbook), không phải approval per-instance — hai hình thức phê duyệt này được phân biệt rõ ở §3.4.
+**Tách trách nhiệm.** Escalation đưa người vào xử lý, AI điều tra song song, approval chỉ kiểm soát remediation. AI lỗi hoặc approval chờ không dừng escalation. Audit/timeline là append-only history bên cạnh CRUD state; thiết kế này **không phải Event Sourcing**.
 
 ---
 
@@ -227,7 +193,7 @@ Bao gồm authentication, authorization, và cấu trúc tổ chức mà mọi m
   | `STAKEHOLDER` | Chỉ xem, có thể subscribe status update |
   | `VIEWER` | Chỉ xem |
 
-  Các permission chi tiết (`INCIDENT_ACK`, `INCIDENT_RESOLVE`, `ESCALATION_MANAGE`, `AI_RUN`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) được gắn vào role thay vì hard-code, tương tự cách các nền tảng incident management trưởng thành tách quyền theo account/team/object.
+  Các permission chi tiết (`INCIDENT_ACK`, `INCIDENT_RESOLVE`, `ESCALATION_MANAGE`, `AI_RUN`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) được gắn vào role thay vì hard-code trong business logic (baseline có thể seed bộ role/permission cố định), tương tự cách các nền tảng incident management trưởng thành tách quyền theo account/team/object.
 
 - **Organization & Teams.** Một organization chứa nhiều team (ví dụ: Backend, Frontend, DevOps, Security, Data), mỗi team có membership và invitation riêng, tạo thành ranh giới sở hữu mà Service Directory và Escalation Policy dựa vào.
 
@@ -235,7 +201,7 @@ Bao gồm authentication, authorization, và cấu trúc tổ chức mà mọi m
 
 Điểm vào nơi tín hiệu bên ngoài trở thành dữ liệu native của platform.
 
-- **Service Directory.** Service là đơn vị chức năng mà một incident thực sự *nói về* — thuộc sở hữu một team, gắn nhãn mức độ nghiêm trọng (`OPERATIONAL`, `DEGRADED`, `MAJOR_INCIDENT`, `MAINTENANCE`, `DISABLED`), và liên kết tới repository, runbook, escalation policy tương ứng.
+- **Service Directory.** Service là đơn vị chức năng mà một incident thực sự *nói về* — thuộc sở hữu một team, có `criticality = CRITICAL/HIGH/NORMAL` thể hiện tầm quan trọng kinh doanh, tách khỏi `status = OPERATIONAL/DEGRADED/MAJOR_INCIDENT/MAINTENANCE/DISABLED` và priority P1–P5 của incident, và liên kết tới repository, runbook, escalation policy tương ứng.
 - **Service Dependency Graph.** Các service khai báo dependency lẫn nhau và với hạ tầng (ví dụ `Checkout → Payment → PostgreSQL → AWS RDS`). Graph này là thứ cho phép AI Investigation Agent suy luận về blast radius — nếu PostgreSQL down, mọi service phụ thuộc đều là ứng viên cho root-cause path, không phải trùng hợp ngẫu nhiên.
 - **Integration & Event Ingestion.** Các hệ thống bên ngoài (Prometheus, Grafana, CloudWatch, GitHub Actions, Kubernetes, custom application) gửi tín hiệu machine-generated qua một **Events API** riêng (`POST /api/v1/events`), xác thực bằng API key theo từng integration thay vì user session. Đây là sự tách biệt có chủ đích khỏi **REST API** hướng resource dùng cho cấu hình, phản ánh đúng quy ước ngành: tách "ingest ở quy mô lớn" khỏi "quản lý cấu hình".
 
@@ -243,58 +209,52 @@ Bao gồm authentication, authorization, và cấu trúc tổ chức mà mọi m
 
 Phần lõi vận hành: biến noise thành một incident đã được định tuyến, có thể hành động, và được phối hợp xử lý.
 
-- **Alert Management.** Bao gồm **deduplication** (các tín hiệu lặp lại cùng `dedupKey` gộp vào một alert đang mở — xem vòng đời dedup key ở §2.6), **grouping** (rule engine hoặc AI heuristic gom các alert liên quan nhưng khác nhau — ví dụ lỗi database, API latency cao, payment timeout — vào cùng một incident), **suppression** (alert phát sinh trong lúc deploy hoặc trong maintenance window vẫn được lưu lại phục vụ forensic nhưng không tạo incident hay notification), và **auto-resolve** (một event loại `RESOLVE` mang cùng `dedupKey` — ví dụ CPU quay về ngưỡng bình thường — tự động chuyển alert đang mở sang `RESOLVED`, không cần responder thao tác thủ công; đây là bổ sung so với luồng resolve thủ công mô tả ở UC-19).
-- **Event Orchestration / Rule Engine.** Một engine `IF condition THEN action` có thể cấu hình, đánh giá trên mỗi event đầu vào. Condition kết hợp các field (`service`, `severity`, `environment`, `event.count`) với operator (`EQUALS`, `CONTAINS`, `GREATER_THAN`, `IN`,...); action gồm `ROUTE`, `SUPPRESS`, `SET_PRIORITY`, `CREATE_INCIDENT`, `TRIGGER_WORKFLOW`. Đây là cơ chế chính chuyển noise từ monitoring thành quyết định định tuyến nhất quán, có thể audit.
+- **Alert Management.** Dedup theo integration/service/key và episode (§2.6), grouping baseline trong cùng service theo rule tất định; AI chỉ gợi ý correlation. Suppression lưu event không tạo alert/incident. Recovery đúng episode resolve alert; chỉ đóng incident khi mọi alert liên kết đã resolved. Manual resolve đóng các alert còn mở trong cùng transaction và ghi lý do.
+- **Event Orchestration / Rule Engine.** Một engine `IF condition THEN action` có thể cấu hình, đánh giá trên mỗi event đầu vào. Condition kết hợp các field (`service`, `severity`, `environment`, `event.count`) với operator (`EQUALS`, `CONTAINS`, `GREATER_THAN`, `IN`,...); action gồm `ROUTE`, `SUPPRESS`, `SET_PRIORITY`, `CREATE_INCIDENT`, `TRIGGER_WORKFLOW` (roadmap, không expose trước khi có workflow engine). Đây là cơ chế chính chuyển noise từ monitoring thành quyết định định tuyến nhất quán, có thể audit.
 - **Incident Management.** Bản ghi Incident (`TRIGGERED → ACKNOWLEDGED → RESOLVED`) theo dõi assignee, priority, severity, và toàn bộ timeline dạng `IncidentEvent`. Acknowledge một incident sẽ dừng escalation nhưng không đóng incident — resolve là một hành động riêng, tường minh.
-- **On-Call Scheduling.** Schedule hỗ trợ các loại rotation (`DAILY`, `WEEKLY`, `CUSTOM`), nhiều layer coverage (Primary/Secondary), và override có giới hạn thời gian cho các trường hợp vắng mặt đã lên kế hoạch — được resolve tại thời điểm truy vấn qua `GET /schedules/{id}/on-call`.
-- **Escalation Management.** Một `EscalationPolicy` là một danh sách level có thứ tự; mỗi level có thể nhắm tới **nhiều target song song** (ví dụ page cả Primary lẫn Secondary cùng lúc ở Level 1, không giới hạn một target/level), và hỗ trợ **re-notify** (gửi lại thông báo 1-2 lần trong cùng level trước khi thật sự escalate sang level kế tiếp, theo `repeatCount`/`repeatIntervalMinutes`) — tương đương chuẩn PagerDuty/Opsgenie. Nếu một level không acknowledge trong thời gian timeout, incident tự động escalate sang level tiếp theo. Vì giữ một HTTP request mở trong 10 phút là không khả thi, việc theo dõi thời gian escalation cần một cơ chế lên lịch bất đồng bộ: ở **Phase 1–2** (chưa có Kafka/Redis), dùng DB polling đơn giản (`SELECT ... FOR UPDATE SKIP LOCKED` theo cột `escalate_at`, chạy bởi `@Scheduled` job); từ **Phase 3** trở đi, nâng cấp sang **Kafka event + scheduled job trên Redis** để chịu tải cao hơn (xem §2.6 và §8.2–8.3). Dù dùng cơ chế nào, escalation luôn phải re-validate trạng thái incident ngay trước khi fire (xem §2.6) để tránh escalate một incident vừa được acknowledge.
-- **Notification.** Gửi đa kênh (email, in-app, WebSocket cho MVP; Slack/Telegram/Discord/SMS cho các tier nâng cao), được điều khiển bởi `NotificationRule` theo từng user (ví dụ: *P1 → email ngay lập tức, +1 phút Telegram, +3 phút SMS*). Việc gửi luôn bất đồng bộ — request tạo incident chỉ publish lên Kafka; một Notification Consumer riêng thực hiện việc gửi thực sự, kèm retry/DLQ như mô tả ở §2.6.
+- **On-Call Scheduling.** Schedule hỗ trợ các loại rotation (`DAILY`, `WEEKLY`, `CUSTOM`), nhiều layer coverage (Primary/Secondary), và override có giới hạn thời gian cho các trường hợp vắng mặt đã lên kế hoạch — được resolve tại thời điểm truy vấn qua `GET /schedules/{id}/on-call`. Baseline dùng lịch tĩnh; roadmap rotation lưu timezone IANA, wall-clock rule và quy tắc DST (giờ trùng chọn offset sớm, giờ thiếu dịch tới instant hợp lệ đầu tiên); override lưu instant UTC.
+- **Escalation Management.** Policy versioned có nhiều level, nhiều target/level, timeout, repeat count/interval và backstop. Phase 1–2 dùng DB polling theo `escalate_at`; Phase 3 có thể dùng Redis wake-up nhưng vẫn quét DB phục hồi. Mỗi timeout cập nhật level/repeat/deadline và notification job nguyên tử. Hết level cuối dừng tự động sau backstop; ACK/RESOLVE huỷ timer (§2.6).
+- **Notification.** Baseline dùng inbox lưu bền, WebSocket push và email khi adapter sẵn sàng; Slack/Telegram/Discord/SMS ở roadmap. `NotificationRule` quyết định channel/delay. Domain transaction tạo job/outbox; worker gửi sau commit, có lease/retry/DLQ và API catch-up cho người offline. Provider delivery không đồng nghĩa ACK.
 - **Incident Response & Collaboration.** Với các incident lớn, NexusOps hỗ trợ các role tường minh (Incident Commander, Technical Lead, Communications Lead, Scribe, Responder), một **Incident War Room** thời gian thực (chat, timeline, AI panel, service graph chạy trên WebSocket/SSE), và các status update hướng tới stakeholder mà họ có thể subscribe độc lập với nhóm responder.
 
 ### 3.4 Automation & AI Operations
 
-Điểm khác biệt cốt lõi của nền tảng: AI agent vận hành có quyền dùng tool, được kiểm soát bởi con người.
+- **Runbook và risk.** Runbook version bất biến lưu base risk LOW/HIGH, schema parameters, target allowlist, `requiresApproval` mặc định true. Backend tính `effectiveRisk = max(baseRisk, serviceRisk)`; CRITICAL service nâng HIGH, HIGH/NORMAL không tự hạ base risk. AI không quyết định risk/quyền. Gate per-instance bắt buộc khi HIGH, requiresApproval=true, hoặc không có pre-authorization policy đang hiệu lực đúng runbook version/service/environment/parameters. LOW + requiresApproval=false chỉ chạy tự động nếu có policy hợp lệ do Team Manager có quyền tạo, với actor/version/expiry/revocation rõ ràng. Rate guard và breaker không thay đổi risk, không được bypass bằng approve (§2.6).
+- **Action và approval.** `automation_actions` lưu incident, investigation nullable, runbook version, parameters, target snapshot, evidence snapshot bất biến, SHA-256 snapshot và effective risk. Thay đổi nội dung phải tạo action mới và xin duyệt lại; không sửa bản đã duyệt. UI dùng `state=PENDING_APPROVAL`, không chỉ kiểm tra HIGH. Backend kiểm tra permission `AUTOMATION_EXECUTE`, phạm vi org/team/service và membership responder được assign hoặc Commander của incident. Quyết định immutable gắn snapshot hash; reject → REJECTED. Pre-authorized action lưu policy ID/version và chuyển APPROVED bởi policy engine có audit.
+- **Execution.** State machine `PENDING_APPROVAL → APPROVED → EXECUTING → SUCCEEDED/FAILED/UNKNOWN`, thêm REJECTED/CANCELLED. CAS APPROVED → EXECUTING cùng reservation/job, unique execution/action, ngăn double approve/worker. Worker revalidate quyền/policy, snapshot và incident chưa resolved trước dispatch; policy không còn hợp lệ thì cancel và yêu cầu action mới. Gửi executor key ổn định bằng execution ID. Retry transport ghi attempt riêng, không tạo execution/action mới. UNKNOWN chỉ reconcile bằng query outcome hoặc bằng chứng do người xác minh; không tự chạy lại. Tác động thực đã xảy ra trước khi incident resolve không thể rollback bằng việc cancel DB job.
+- **Knowledge Base & RAG.** Tài liệu/runbook/PIR được version, chunk, embed vào PGVector; lưu model/dimension/version, nguồn và ACL để retrieval lọc quyền **trước** đưa vào LLM. Xoá/thu hồi quyền nguồn phải invalidation index; approved PIR mới được index. Log/RAG là dữ liệu không tin cậy, không được nâng quyền hoặc điều khiển executor.
+- **AI investigation.** Tạo `ai_investigations=RUNNING` trước mọi tool call; log luôn FK investigation ID. Conversation history phải lưu assistant tool-call message trước các tool-result message khớp call ID. Pin Spring AI/SDK/model versions trong build khi triển khai, dùng API theo đúng phiên bản và integration test history; không coi pseudocode là code chạy được. Tool calling tham chiếu [Spring AI Reference](https://docs.spring.io/spring-ai/reference/api/tools.html).
+- **Tool boundary.** Allowlist các read-only tool; validate JSON Schema, UUID và output; scope lấy từ server context, không tin serviceId do LLM truyền. Baseline `getIncident`, `getAlerts`, `getRecentDeployments`, `searchKnowledge`; `getLogs/getMetrics` qua observability adapter và `getDependencies` qua bảng dependency khi đã có integration. Không giả lập như dữ liệu thật. Timeout mỗi tool 10 giây, tối đa 8 vòng và tổng deadline 120 giây, có token/cost budget cấu hình; hết budget → TIMED_OUT, lỗi → FAILED, giữ evidence đã thu thập. Secrets/PII được redact. AI thất bại không ảnh hưởng paging/ACK.
 
-- **Automation / Runbooks.** Một `Runbook` là một hành động vận hành có tên, có version (restart service, clear cache, scale deployment, rollback), được gắn nhãn `riskLevel` **tĩnh** (base risk của loại hành động) và cờ `requiresApproval` (override thủ công do Team Manager đặt — ví dụ "runbook này luôn cần approval vì đụng tới payment ledger", bất kể risk tính toán được). Runbook có thể được kích hoạt thủ công, từ rule của event orchestration, hoặc từ đề xuất của AI — nhưng luôn đi qua bộ đếm Automation Circuit Breaker ở §2.6 trước khi thực thi. Điều kiện bắt buộc approval per-instance là: **`runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH`** (hai điều kiện độc lập, chỉ cần một đúng).
-- **Human Approval Gate.** Không một hành động nào do AI khởi xướng và có ảnh hưởng tới production được thực thi mà không có sự cho phép của con người — dưới một trong hai hình thức: **(a)** approval per-instance, tường minh, do responder/Incident Commander xác nhận tại thời điểm xảy ra (bắt buộc với action `HIGH`-risk); hoặc **(b)** pre-authorization theo chính sách, do Team Manager cấu hình từ trước ở cấp runbook (chỉ áp dụng cho action `LOW`-risk, đã hiểu rõ hệ quả). Risk mức **hiệu lực** (`effectiveRiskLevel`) không chỉ lấy từ `riskLevel` tĩnh của runbook mà còn được nâng cấp động theo ngữ cảnh:
-  ```
-  effectiveRiskLevel = max(
-    runbook.riskLevel,                                  // rủi ro tĩnh của loại hành động
-    riskFromServiceCriticality(service.criticality),     // MAJOR_INCIDENT-tier service -> nâng risk
-    circuitBreakerPenalty(service, runbook, window=15m)   // lặp lại nhiều lần -> ép về HIGH
-  )
-  ```
-  Bất kỳ yếu tố nào nâng `effectiveRiskLevel` lên `HIGH` đều bắt buộc chuyển sang approval per-instance (a), kể cả khi runbook gốc đã được pre-authorize.
-- **Knowledge Base & RAG.** Runbook, tài liệu kiến trúc, hướng dẫn troubleshooting, và các incident cũ được chunk, embed và lưu trong **PGVector**, cho phép retrieval-augmented generation: một truy vấn investigation sẽ kéo về các tài liệu và incident lịch sử liên quan nhất làm context nền trước khi LLM suy luận.
-- **AI Agent Platform.** Thay vì một chat assistant đa năng duy nhất, NexusOps triển khai một tập hợp **agent chuyên biệt**, mỗi agent gắn với một giai đoạn của vòng đời incident và được trang bị **tool calling** trên dữ liệu của chính platform (`getIncident`, `getAlerts`, `getDependencies`, `getRecentDeployments`, `getLogs`, `getMetrics`, `searchKnowledge`, `searchPastIncidents`, `runDiagnostic`,...), để LLM tự quyết định cần gọi tool nào thay vì phụ thuộc vào một prompt cố định duy nhất.
+| Agent trong roadmap | Trách nhiệm | Quyền thực thi |
+|---|---|---|
+| Triage | Gợi ý priority/service/correlation | Chỉ đọc và đề xuất |
+| Investigation | Giả thuyết root cause + evidence refs + dữ kiện còn thiếu | Chỉ đọc |
+| Remediation | Đề xuất runbook/parameters từ allowlist | Không gọi executor |
+| Postmortem / Scribe | Soạn PIR draft từ timeline/evidence | Chỉ tạo bản nháp |
+| Knowledge | Trả lời kèm nguồn được phép truy cập | Chỉ đọc |
+| On-call Assistant | Tra cứu schedule/policy | Chỉ đọc |
 
-  | Agent | Trách nhiệm | Có tự thực thi hành động? |
-  |---|---|---|
-  | Triage Agent | Phân loại mức độ nghiêm trọng, kiểm tra trùng lặp/alert liên quan, xác định service bị ảnh hưởng | Không |
-  | Investigation Agent | Thu thập logs, metrics, deployment, dependency và các incident tương tự trong quá khứ; đưa ra giả thuyết root-cause kèm độ tin cậy và bằng chứng | Không |
-  | Remediation Agent | Đề xuất một hành động remediation cụ thể kèm mức độ rủi ro | Không — bắt buộc qua Human Approval Gate |
-  | Postmortem / Scribe Agent | Tổng hợp timeline, notes, chat và kết quả investigation thành bản nháp Post-Incident Review có cấu trúc | Không |
-  | Knowledge Agent | Trả lời câu hỏi "làm sao để khôi phục X?" bằng RAG trên runbook và incident cũ | Không |
-  | On-call Assistant | Trả lời câu hỏi "ai đang on-call cho X?" bằng cách resolve service → escalation policy → schedule đang active | Không |
-
-  Chỉ **Automation Worker** — hoạt động sau khi điều kiện approval ở §3.4 (per-instance hoặc pre-authorization theo chính sách) đã được thoả mãn — mới được phép thực thi một hành động làm thay đổi trạng thái hệ thống production.
+Baseline chỉ cần một Investigation Agent và PIR draft, không cần sáu runtime riêng. Confidence là score tự báo cáo chưa hiệu chuẩn, không phải xác suất root cause đúng. Deployment gần thời điểm lỗi là tương quan; cần bằng chứng bổ sung. Chỉ Automation Worker có credential executor giới hạn sandbox/service/action.
 
 ### 3.5 Reliability Engineering & Governance
 
 Khép lại vòng lặp từ resolution đến việc học hỏi của tổ chức, đồng thời cung cấp tầng quan sát vận hành cho cả kỹ sư lẫn stakeholder.
 
 - **Post-Incident Review.** Mỗi incident đã resolve tạo ra một `PostIncidentReview` (summary, root cause, impact, timeline, các yếu tố góp phần, và action item được phân loại — `BUG_FIX`, `INFRASTRUCTURE`, `MONITORING`, `PROCESS`, `DOCUMENTATION`, `SECURITY`), đi qua các trạng thái `DRAFT → IN_REVIEW → APPROVED → COMPLETED`.
-- **Analytics & Reliability Metrics.** Các KPI reliability tiêu chuẩn được tính trực tiếp từ timestamp của incident: **MTTA** (`acknowledgedAt − triggeredAt`) và **MTTR** (`resolvedAt − triggeredAt`) được tính **tự động, real-time** vì cả hai mốc thời gian đều do chính hệ thống ghi nhận. **MTTD** (`detectedAt − actualFailureAt`) thì khác về bản chất: `actualFailureAt` (thời điểm sự cố *thực sự* bắt đầu) không thể biết được tại thời điểm phát hiện — đó chính là khoảng trống mà MTTD đo lường. Vì vậy `actualFailureAt` là một trường **nullable, nhập tay** trong Post-Incident Review (UC-26), do Incident Commander ước lượng hồi cứu (dựa trên log/metric); MTTD do đó là một chỉ số **best-effort/ước lượng**, không phải real-time metric như MTTA/MTTR — đúng tinh thần Google SRE Book, nơi MTTD thường được tính hồi cứu trong postmortem chứ không đo được tức thời. Alert-noise analytics theo dõi toàn bộ funnel event → alert → incident (ví dụ 100.000 event → 15.000 alert → 9.000 deduplicated → 800 incident) để định lượng hiệu quả giảm nhiễu của pipeline.
-- **SLA / SLO.** Service có thể khai báo SLO (ví dụ 99.9% availability) kèm error budget tương ứng (`errorBudget = (1 − SLO) × thời gian trong cửa sổ đo`). Mức tiêu hao được tính từ thời lượng downtime/degradation thực tế (không chỉ đếm số incident), và hệ thống hỗ trợ **multi-window burn-rate alerting** theo mô hình Google SRE Workbook — ví dụ cảnh báo "fast burn" khi tốc độ tiêu hao trong cửa sổ 1 giờ/5 phút vượt ngưỡng, và "slow burn" khi cửa sổ 6 giờ vượt ngưỡng — để phát hiện sớm nguy cơ vi phạm SLO trước khi error budget cạn hoàn toàn, thay vì chỉ báo cáo sau khi đã tiêu hết.
+- **Analytics & Reliability Metrics.** Per-incident time-to-ack = first `acknowledged_at - triggered_at`; time-to-resolve = `resolved_at - triggered_at`. MTTA là trung bình của incident có first ACK trong `[from,to)` (kể cả chưa resolve); MTTR là trung bình của incident resolve trong kỳ (kể cả chưa ACK). Bản ghi thiếu mốc không tính, không coi bằng 0; hiển thị sample count, cohort, timezone, median/p95 khi đủ mẫu. `actual_failure_at` và `detected_at` nullable trên incident, được Commander nhập/xác minh qua PIR kèm nguồn: MTTD = detected − actual failure, chỉ lấy cặp hợp lệ đã xác minh và hiển thị là ước lượng. Một incident chỉ cho duration, không chứng minh cải thiện trung bình. Funnel tách số request replay, accepted events, suppressed/stale events, trigger occurrences, alerts mới và incidents mới; không trộn đơn vị event với alert.
+- **SLA / SLO.** Roadmap yêu cầu SLI từ monitoring, cửa sổ và định nghĩa good/total rõ ràng. Với time-based availability: error budget = `(1 − SLO) × eligible duration`, downtime là hợp các khoảng không khả dụng, không cộng trùng incident. Request-based SLI dùng bad/total requests. Burn rate = bad fraction / `(1 − SLO)`, tính multi-window từ SLI; không suy ra trực tiếp từ số incident. Chưa có nguồn SLI và kiểm thử thì chỉ là cấu hình/định hướng, chưa phải năng lực đo reliability đã chứng minh.
 - **Status Page.** Một trang public hoặc giới hạn theo đối tượng, phản ánh trạng thái vận hành theo từng service, được cập nhật tự động từ trạng thái incident (có human approval cho các nội dung hướng tới công chúng khi cần).
-- **Maintenance Window.** Một rule suppression có giới hạn thời gian cho một service cụ thể — các event khớp trong khoảng thời gian này được ghi nhận nhưng không bao giờ escalate thành incident.
+- **Maintenance Window.** Một rule suppression có giới hạn thời gian cho một service cụ thể — TRIGGER mới khớp bị suppress; RESOLVE cho episode đã theo dõi vẫn cập nhật recovery (§2.6).
 - **Audit Log.** Mọi hành động có quyền hạn cao (ai, làm gì, khi nào, trên đối tượng nào, giá trị cũ → giá trị mới) đều được ghi lại bất biến — một yêu cầu nền tảng cho bất kỳ hệ thống nào quản lý quyền truy cập production và remediation tự động.
 
 ---
 
 ## 4. Mô hình Use Case (Use Case Model)
 
-Mục này đặc tả đầy đủ các **tác nhân (actor)** và **use case** của NexusOps, tổ chức theo cùng năm nhóm năng lực đã trình bày ở Mục 3, để mỗi use case có thể truy vết trực tiếp về module tương ứng.
+Mục này mô tả roadmap các **tác nhân (actor)** và **use case** của NexusOps, tổ chức theo cùng năm nhóm năng lực đã trình bày ở Mục 3, để mỗi use case có thể truy vết trực tiếp về module tương ứng.
+
+Các sơ đồ flowchart biểu diễn quan hệ chức năng, không phải UML Use Case chuẩn đầy đủ. Cạnh nét đứt biểu diễn phụ thuộc/tham chiếu; AI là nhánh tuỳ chọn khi đã bật, không phải điều kiện để tạo incident. Trong mục này và bảng §6.2, path viết gọn đều có prefix `/api/v1`.
 
 ### 4.1 Danh sách Tác nhân (Actors)
 
@@ -307,7 +267,7 @@ Mục này đặc tả đầy đủ các **tác nhân (actor)** và **use case**
 | **Incident Commander** | Con người | Vai trò được một Responder đảm nhận khi điều phối một major incident (P1/P2); phê duyệt automation, đăng status update, duyệt PIR. |
 | **Stakeholder** | Con người | Theo dõi trạng thái incident/service qua subscription và dashboard; không thao tác trực tiếp trên incident. |
 | **AI Agent** | Hệ thống (tác nhân tự động) | Thực hiện triage, investigation, truy vấn knowledge base, và soạn thảo postmortem; không tự thực thi hành động thay đổi hệ thống. |
-| **Automation Worker** | Hệ thống (tác nhân tự động) | Thực thi runbook/remediation sau khi đã có human approval (đối với hành động rủi ro cao). |
+| **Automation Worker** | Hệ thống (tác nhân tự động) | Thực thi runbook/remediation sau khi đã có human approval (hoặc pre-authorization hợp lệ; còn phải qua rate guard/breaker). |
 
 ### 4.2 Use Case: Identity, Access & Organization
 
@@ -330,8 +290,8 @@ flowchart LR
     AccountAdmin --- UC03
     TeamManager --- UC03
 
-    UC02 -.->|"«include»"| UC01
-    UC03 -.->|"«include»"| UC01
+    UC02 -.->|"phụ thuộc"| UC01
+    UC03 -.->|"phụ thuộc"| UC01
 
     classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
     classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
@@ -437,16 +397,12 @@ flowchart LR
   3. Team Manager cấu hình API key này trên hệ thống monitoring bên ngoài.
 - **Điều kiện sau:** Integration ở trạng thái active, sẵn sàng nhận event.
 
-**UC-07 — Ingest Monitoring Event**
-- **Tác nhân:** Monitoring System
-- **Mô tả:** Hệ thống giám sát bên ngoài gửi tín hiệu thô vào NexusOps.
-- **Điều kiện tiên quyết:** Integration key hợp lệ đã được cấu hình (UC-06).
-- **Luồng sự kiện chính:**
-  1. Monitoring System gửi `POST /api/v1/events` kèm `Idempotency-Key`/`dedupKey`.
-  2. Hệ thống xác thực integration key, áp rate limit theo Redis token-bucket.
-  3. Event được publish `EventReceived` lên Kafka.
-- **Luồng ngoại lệ:** Key trùng đã xử lý trước đó → trả kết quả cũ (idempotent); vượt rate limit → trả 429.
-- **Điều kiện sau:** Event tồn tại trong hệ thống, sẵn sàng cho Event Orchestration xử lý.
+**UC-07 — Nhận Event từ Monitoring System**
+- **Tác nhân:** Monitoring System.
+- **Tiên quyết:** Integration active, có quyền trên service; JSON đúng schema; đủ Idempotency-Key/dedupKey và episode contract (§6.3).
+- **Luồng chính:** Xác thực và rate limit; claim key trước xử lý; winner thực hiện orchestration/dedup/grouping hoặc recovery, ghi event/domain/timeline/audit/job/outbox và response trong một transaction (§2.6). Sau commit trả 200 cùng eventId/outcome/alertId/incidentId nullable; side effect chạy bất đồng bộ.
+- **Ngoại lệ:** Retry cùng key/body replay nguyên response; khác body 409; key contention timeout 503 + Retry-After; thiếu dữ liệu 400; rate limit 429. Suppressed/stale/unmatched recovery trả outcome rõ, không tạo incident.
+- **Điều kiện sau:** Accepted event và mọi nghĩa vụ xử lý tiếp theo đã lưu bền, không khẳng định notification đã đến người nhận.
 
 ### 4.4 Use Case: Incident Response Pipeline
 
@@ -498,9 +454,9 @@ flowchart LR
 
     UC09 -->|"kích hoạt"| UC10
     UC10 -->|"khởi động hẹn giờ"| UC12
-    UC10 -.->|"«include»: luôn chạy song song"| REF_AI
+    UC10 -.->|"phụ thuộc: luôn chạy song song"| REF_AI
     UC11 -.->|"⊣ ngăn chặn nếu ACK trước timeout"| UC12
-    UC19 -.->|"«include»"| REF_PM
+    UC19 -.->|"phụ thuộc"| REF_PM
 
     classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
     classDef actorSystem fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
@@ -522,49 +478,32 @@ flowchart LR
   3. Rule được áp dụng cho mọi event tiếp theo khớp điều kiện.
 - **Điều kiện sau:** Rule mới có hiệu lực trong Event Orchestration Engine.
 
-**UC-09 — Deduplicate & Group Alerts** *(use case hệ thống, tự động)*
-- **Tác nhân:** System (Dedup & Grouping Engine), kích hoạt từ UC-07
-- **Mô tả:** Gộp các event/alert trùng lặp hoặc liên quan thành một alert/nhóm.
-- **Điều kiện tiên quyết:** Event đã qua Event Orchestration và không bị suppress.
-- **Luồng sự kiện chính:**
-  1. Engine kiểm tra `dedupKey` của alert **đang mở** trong Redis cache (fast-path; nguồn chân lý là `uniq_open_dedup` ở DB — xem §2.6).
-  2. Nếu đã tồn tại → gộp vào alert hiện có, publish `AlertDeduplicated`.
-  3. Nếu chưa tồn tại (hoặc alert cũ cùng key đã `RESOLVED`) → tạo alert mới, publish `AlertCreated`.
-  4. Nếu alert liên quan tới các alert khác cùng thời điểm → gộp nhóm, publish `AlertGrouped`.
-- **Điều kiện sau:** Alert (mới hoặc đã gộp) sẵn sàng cho Incident Management xử lý.
+**UC-09 — Deduplicate & Group Alerts** *(hệ thống)*
+- **Tác nhân:** Dedup & Grouping Engine.
+- **Tiên quyết:** TRIGGER hợp lệ, không suppress/stale.
+- **Luồng chính:** Khoá service và validate `alert_streams`; tìm alert OPEN đúng namespace/episode; nếu có, tăng occurrence nguyên tử; nếu chưa có thì tạo alert. Gắn `events.alert_id` cho mọi trigger occurrence; chỉ alert mới cần chọn incident theo grouping rule/window. Liên kết alert/incident, timeline và job cùng transaction UC-07/UC-10.
+- **Ngoại lệ:** Partial unique conflict → rollback/retry rồi đọc winner; stream conflict → 409; không tạo incident rỗng. Episode đã đóng không được mở lại.
+- **Điều kiện sau:** Một alert OPEN/namespace, count chính xác, một liên kết incident/alert. Episode mới sau resolve có alert mới.
 
-**UC-10 — Tạo Incident** *(use case hệ thống, tự động)*
-- **Tác nhân:** System (Incident Management), kích hoạt từ UC-09
-- **Mô tả:** Chuyển một alert (hoặc nhóm alert) đủ điều kiện thành một Incident chính thức.
-- **Điều kiện tiên quyết:** Alert có severity/priority đạt ngưỡng tạo incident (theo rule orchestration).
-- **Luồng sự kiện chính:**
-  1. Hệ thống tạo bản ghi Incident (`TRIGGERED`), gán `incidentNumber`, liên kết các alert liên quan.
-  2. Hệ thống publish `IncidentCreated` lên Kafka.
-  3. Escalation Worker và AI Agent Worker đồng thời subscribe sự kiện này (xem UC-12, UC-23).
-- **Điều kiện sau:** Incident tồn tại ở trạng thái `TRIGGERED`; escalation và AI investigation bắt đầu song song.
+**UC-10 — Tạo Incident** *(hệ thống)*
+- **Tác nhân:** Incident Management.
+- **Tiên quyết:** Alert mới đủ ngưỡng; chưa có incident đang mở phù hợp grouping.
+- **Luồng chính:** Trong transaction ingest, tạo TRIGGERED với incidentNumber, priority, timestamps, policy version/target snapshot, level đầu và deadline; gắn alert; tạo timeline, audit, notification job/outbox. Sau commit notification/escalation hoạt động độc lập với AI job khi đã bật AI.
+- **Điều kiện sau:** Incident và nghĩa vụ paging tồn tại cùng nhau; Kafka chỉ được dùng từ Phase 3.
 
 **UC-11 — Acknowledge Incident**
-- **Tác nhân:** On-call Responder
-- **Mô tả:** Responder xác nhận đã tiếp nhận và đang xử lý incident.
-- **Điều kiện tiên quyết:** Incident đang ở trạng thái `TRIGGERED`; responder là người được page hoặc có quyền `INCIDENT_ACK`.
-- **Luồng sự kiện chính:**
-  1. Responder gọi `POST /incidents/{id}/acknowledge`.
-  2. Hệ thống chuyển trạng thái sang `ACKNOWLEDGED`, publish `IncidentAcknowledged`.
-  3. Escalation timer cho incident này dừng lại.
-- **Điều kiện sau:** Incident ở trạng thái `ACKNOWLEDGED`; AI investigation (nếu đang chạy) tiếp tục không bị ảnh hưởng.
+- **Tác nhân:** On-call Responder.
+- **Tiên quyết:** Permission INCIDENT_ACK và quyền trên incident/service; incident TRIGGERED.
+- **Luồng chính:** POST `/incidents/{id}/acknowledge` kèm expectedVersion. Transaction khoá incident/CAS, chuyển ACKNOWLEDGED, lưu first acknowledged_at, xoá escalate_at và cancel notification job chưa dispatch; ghi timeline/audit/outbox.
+- **Ngoại lệ:** ACK lặp của incident đã ACK trả trạng thái hiện tại không đổi timestamp; stale version/state conflict trả 409 sau kiểm tra quyền. Không thu hồi được page đã dispatch.
+- **Điều kiện sau:** Timer dừng, AI vẫn tiếp tục; ACK không phải approval automation.
 
-**UC-12 — Escalate Incident** *(tự động, hoặc thủ công)*
-- **Tác nhân:** System (Escalation Worker); On-call Responder (escalate thủ công)
-- **Mô tả:** Đưa incident lên level tiếp theo của escalation policy khi hết timeout mà chưa được acknowledge.
-- **Điều kiện tiên quyết:** Incident ở trạng thái `TRIGGERED` và đã hết `timeoutMinutes` của level hiện tại; hoặc responder chủ động escalate.
-- **Luồng sự kiện chính:**
-  1. Escalation Worker (dùng Redis-scheduled job, hoặc DB polling ở Phase 1–2 — xem §3.3) phát hiện timeout của level hiện tại.
-  2. Worker lấy Redis distributed lock trên incident để giảm tranh chấp (không phải nguồn đúng-sai duy nhất).
-  3. Worker **re-fetch và re-validate trạng thái incident** ngay trước khi hành động — chỉ escalate nếu vẫn còn `TRIGGERED` đúng `escalation_level` mong đợi, thực hiện qua `UPDATE ... WHERE version = :expectedVersion` (fencing token — xem §2.6). Nếu incident đã được acknowledge trong lúc chờ → bỏ qua, không escalate.
-  4. Hệ thống chuyển sang level tiếp theo trong `EscalationPolicy`, publish `IncidentEscalated`.
-  5. Notification Worker gửi thông báo tới (các) target của level mới, có thể **re-notify** nhiều lần trong cùng level trước khi escalate tiếp (UC-16, §3.3).
-- **Luồng ngoại lệ:** Đã ở level cuối cùng → thông báo tới toàn bộ team/manager.
-- **Điều kiện sau:** Incident được gán trách nhiệm cho level mới; đồng hồ timeout của level mới bắt đầu chạy.
+**UC-12 — Escalate Incident** *(tự động hoặc thủ công)*
+- **Tác nhân:** Escalation Worker; responder có quyền trong scope.
+- **Tiên quyết:** TRIGGERED, chưa exhausted; timeout đúng deadline hoặc explicit manual escalation với expectedVersion.
+- **Luồng chính:** Claim incident đến hạn; transaction revalidate version/level/repeat/deadline. Nếu còn repeat thì re-notify và dời deadline; nếu hết repeat thì chuyển level có trong policy, reset repeat, đặt deadline mới. Ghi timeline/audit/job có unique transition key rồi commit; worker gửi sau commit.
+- **Ngoại lệ:** ACK/RESOLVE thắng → bỏ timeout; CAS conflict khác → đọc lại/retry hữu hạn. Level cuối hết budget → một backstop job, exhausted=true, deadline=NULL. Manual escalate bỏ repeat hiện tại nhưng không vượt level cuối.
+- **Điều kiện sau:** Không tăng level vô hạn, restart không mất deadline; giới hạn race send/ACK theo §2.6.
 
 **UC-13 — Quản lý Lịch On-call (Schedule)**
 - **Tác nhân:** Team Manager
@@ -594,14 +533,11 @@ flowchart LR
 - **Điều kiện sau:** Mọi incident phát sinh từ service này tuân theo policy mới.
 
 **UC-16 — Nhận Notification**
-- **Tác nhân:** On-call Responder, Stakeholder
-- **Mô tả:** Nhận thông báo qua kênh đã cấu hình khi có sự kiện liên quan tới incident.
-- **Điều kiện tiên quyết:** `NotificationRule` đã được cấu hình cho user/priority tương ứng.
-- **Luồng sự kiện chính:**
-  1. Hệ thống publish `NotificationRequested` (từ UC-10, UC-12,...).
-  2. Notification Worker resolve kênh và độ trễ theo `NotificationRule`.
-  3. Notification được gửi (email/WebSocket/Slack/SMS); nếu thất bại → retry, cuối cùng vào DLQ (xem §2.6).
-- **Điều kiện sau:** Responder/stakeholder nhận được thông báo, hoặc thông báo nằm trong DLQ chờ xử lý thủ công.
+- **Tác nhân:** Responder, Stakeholder.
+- **Tiên quyết:** Target/channel snapshot và notification rule hợp lệ.
+- **Luồng chính:** Domain transaction tạo job; notification worker tạo delivery PENDING và inbox trong transaction idempotent theo delivery key; sau commit push WebSocket/gửi provider. Cập nhật SENT khi provider chấp nhận; retry có budget, DLQ có lý do. Người dùng offline lấy lại inbox qua GET `/notifications?after=cursor`.
+- **Ngoại lệ:** Recheck incident trước paging; job chưa dispatch có thể CANCELLED khi ACK/RESOLVE. Provider không idempotent có thể gửi lặp nếu outcome bị mất.
+- **Điều kiện sau:** Inbox/delivery truy vết được. SENT/DELIVERED/READ không tự chuyển incident thành ACKNOWLEDGED.
 
 **UC-17 — Collaborate trong Incident War Room**
 - **Tác nhân:** On-call Responder, Incident Commander
@@ -623,15 +559,11 @@ flowchart LR
 - **Điều kiện sau:** Stakeholder nắm được tiến độ mới nhất mà không cần hỏi trực tiếp responder.
 
 **UC-19 — Resolve Incident**
-- **Tác nhân:** On-call Responder (thủ công); System (tự động, xem luồng thay thế)
-- **Mô tả:** Đóng một incident sau khi vấn đề đã được khắc phục.
-- **Điều kiện tiên quyết:** Incident ở trạng thái `ACKNOWLEDGED` (thường sau khi remediation đã có hiệu lực).
-- **Luồng sự kiện chính:**
-  1. Responder gọi `POST /incidents/{id}/resolve`.
-  2. Hệ thống chuyển trạng thái sang `RESOLVED`, publish `IncidentResolved`, ghi `resolvedAt`, giải phóng dedup key (`DEL dedup:<key>` — xem §2.6).
-  3. Hệ thống tự động yêu cầu AI Postmortem Agent soạn thảo PIR (UC-25).
-- **Luồng thay thế — Auto-resolve:** Nếu Monitoring System gửi một event loại `RESOLVE` mang cùng `dedupKey` của alert đang mở (ví dụ CPU quay về ngưỡng bình thường), hệ thống tự resolve alert/incident tương ứng mà không cần responder thao tác (xem §3.3).
-- **Điều kiện sau:** Incident đóng; MTTR được tính; quy trình Post-Incident Review bắt đầu (bao gồm việc Incident Commander nhập `actualFailureAt` để tính MTTD — xem §3.5).
+- **Tác nhân:** Responder có INCIDENT_RESOLVE trong scope; hệ thống cho auto-resolve.
+- **Tiên quyết:** Manual resolve khi ACKNOWLEDGED, có lý do; auto-resolve cho cả TRIGGERED/ACKNOWLEDGED khi mọi alert đã recovery.
+- **Luồng chính:** POST `/incidents/{id}/resolve` với expectedVersion/reason; khoá service rồi incident, đóng mọi alert OPEN liên kết và stream episode, resolve incident, lưu resolved_at, huỷ timer/job chưa dispatch; timeline/audit/outbox và PIR job commit cùng transaction. Cache invalidation compare-and-delete sau commit.
+- **Luồng thay thế:** RESOLVE đúng episode chỉ resolve alert mục tiêu; incident vẫn mở nếu còn alert OPEN. RESOLVE cũ/unmatched là no-op có audit. Khi alert cuối resolved mới đóng incident và tạo PIR draft job.
+- **Điều kiện sau:** Không còn alert OPEN thuộc incident RESOLVED; episode mới tạo vòng đời mới. PIR draft không tự chứng minh remediation thành công.
 
 ### 4.5 Use Case: Automation & AI Operations
 
@@ -668,12 +600,12 @@ flowchart LR
     AIAgent --- UC25
     Responder2 --- UC24
 
-    REF_INC -.->|"«include»"| UC22
-    REF_INC -.->|"«include»"| UC23
-    UC23 -.->|"«include»"| UC24
-    UC23 -->|"phát hiện effectiveRiskLevel = HIGH<br/>→ yêu cầu duyệt"| UC21
-    UC21 -.->|"«extend»<br/>điểm mở rộng: effectiveRiskLevel = HIGH<br/>HOẶC requiresApproval = true"| UC20
-    UC25 -.->|"«include»"| REF_PIR
+    REF_INC -.->|"AI đã bật"| UC22
+    REF_INC -.->|"AI đã bật"| UC23
+    UC23 -.->|"phụ thuộc"| UC24
+    UC23 -->|"Backend xác định PENDING_APPROVAL"| UC21
+    UC21 -.->|"luồng điều kiện<br/>điểm mở rộng: action PENDING_APPROVAL"| UC20
+    UC25 -.->|"phụ thuộc"| REF_PIR
 
     classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
     classDef actorSystem fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
@@ -686,28 +618,18 @@ flowchart LR
 ```
 
 **UC-20 — Thực thi Runbook (Trigger/Execute)**
-- **Tác nhân:** Automation Worker (tự động); On-call Responder (thủ công)
-- **Mô tả:** Thực thi một hành động vận hành đã định nghĩa trước (runbook) trên một service.
-- **Điều kiện tiên quyết:** Runbook tồn tại; nếu `runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH` (xem §3.4) thì UC-21 phải hoàn tất trước.
-- **Luồng sự kiện chính:**
-  1. Runbook được kích hoạt (thủ công qua `POST /runbooks/{id}/execute`, hoặc tự động từ AI recommendation đã approve).
-  2. Hệ thống kiểm tra `automation_rate_limits`: nếu vượt ngưỡng lặp lại trong 15 phút gần nhất → nâng `effectiveRiskLevel` lên `HIGH` và chuyển sang UC-21 bất kể trạng thái pre-authorize (Automation Circuit Breaker — xem §2.6).
-  3. Automation Worker thực thi hành động (restart, rollback, scale,...).
-  4. Hệ thống ghi lại `automation_executions`, tăng bộ đếm `automation_rate_limits`, publish `AutomationExecuted`.
-- **Luồng ngoại lệ:** Thực thi thất bại → ghi log lỗi, thông báo cho responder.
-- **Điều kiện sau:** Hành động vận hành đã được thực thi (hoặc ghi nhận thất bại) trên service mục tiêu.
+- **Tác nhân:** Responder trong scope; Automation Worker.
+- **Tiên quyết:** Action snapshot hợp lệ, incident chưa RESOLVED, approval/pre-authorization thoả §3.4.
+- **Luồng chính:** POST `/runbooks/{id}/execute` tạo action bằng request key (không thực thi ngay); state PENDING_APPROVAL hoặc APPROVED theo backend policy. Worker khoá guard, kiểm tra rate slot/breaker/quyền/snapshot; reservation + unique execution + CAS EXECUTING + job trong cùng transaction. Sau commit gọi executor bằng executionId, ghi attempts/outcome/evidence.
+- **Ngoại lệ:** Hết rate/breaker OPEN → action APPROVED bị blocked, dời job; approval không override. Policy/quyền hết hiệu lực → CANCELLED. Timeout mơ hồ → UNKNOWN, reconcile; không retry mù. POST replay cùng key không tạo action mới.
+- **Điều kiện sau:** SUCCEEDED/FAILED/UNKNOWN có audit; SUCCEEDED của executor không tự resolve incident, cần recovery hoặc UC-19.
 
 **UC-21 — Phê duyệt Automated Remediation (Human Approval Gate)**
-- **Tác nhân:** On-call Responder, Incident Commander
-- **Mô tả:** Con người xem xét và phê duyệt (hoặc từ chối) một hành động remediation rủi ro cao do AI đề xuất.
-- **Điều kiện tiên quyết:** `runbook.requiresApproval = true` HOẶC `effectiveRiskLevel = HIGH` cho action tương ứng (từ `riskLevel` tĩnh của runbook, service criticality, hoặc circuit breaker — xem §3.4).
-- **Luồng sự kiện chính:**
-  1. Hệ thống hiển thị đề xuất remediation kèm bằng chứng (evidence từ `AI_INVESTIGATION`/`AI_TOOL_CALL`) và mức rủi ro cho actor có quyền `AUTOMATION_EXECUTE`.
-  2. Actor xem xét, gọi `POST /automation/{id}/approve` (hoặc từ chối).
-  3. Hệ thống ghi bản `automation_approvals` bất biến (`approvedBy`, `decision`, `decidedAt`, `evidenceSnapshotRef` — snapshot đúng bằng chứng đã hiển thị tại bước 1, phục vụ audit sau này).
-  4. Nếu approve → publish `AutomationApproved`, chuyển sang UC-20.
-- **Luồng ngoại lệ:** Actor từ chối → đề xuất bị huỷ (vẫn ghi `automation_approvals` với `decision = REJECTED`), responder xử lý thủ công.
-- **Điều kiện sau:** Quyết định phê duyệt/từ chối được ghi bất biến vào `automation_approvals` và `audit_logs`; automation chỉ chạy khi đã approve; quyết định có thể truy vết lại chính xác bằng chứng đã dùng tại thời điểm phê duyệt.
+- **Tác nhân:** Assigned Responder hoặc Incident Commander, có AUTOMATION_EXECUTE đúng scope.
+- **Tiên quyết:** Action PENDING_APPROVAL (HIGH, requiresApproval hoặc thiếu pre-authorization hợp lệ).
+- **Luồng chính:** UI hiển thị target/parameters/runbook version/risk/evidence từ snapshot bất biến. Actor POST `/automation/{id}/approve` hoặc `/reject` kèm expectedVersion và snapshotHash. Transaction recheck permission/scope/hash/state, lưu decision bất biến, CAS APPROVED/REJECTED và job/outbox. Approve lặp cùng quyết định replay; quyết định xung đột trả 409.
+- **Ngoại lệ:** Snapshot thay đổi → tạo action mới; người ngoài incident/service 403; incident đã resolved → cancel. Approval không bypass hard stop.
+- **Điều kiện sau:** Chuỗi incident → investigation → action → snapshot → approval → execution truy được; action chỉ chạy một logical execution.
 
 **UC-22 — AI Triage Alert**
 - **Tác nhân:** AI Agent (Triage Agent)
@@ -720,15 +642,11 @@ flowchart LR
 - **Điều kiện sau:** Kết quả triage hiển thị trên Incident Detail, hỗ trợ responder ra quyết định nhanh hơn.
 
 **UC-23 — AI Investigate Incident**
-- **Tác nhân:** AI Agent (Investigation Agent)
-- **Mô tả:** Điều tra sâu để tìm giả thuyết root-cause, chạy song song với escalation.
-- **Điều kiện tiên quyết:** Incident đã được tạo; agent có quyền truy cập tool platform.
-- **Luồng sự kiện chính:**
-  1. Agent thu thập logs, metrics, recent deployments, dependencies (qua tool calling).
-  2. Agent truy vấn Knowledge Base (RAG) để tìm incident/runbook tương tự (UC-24).
-  3. Agent tổng hợp giả thuyết root-cause kèm độ tin cậy, đề xuất remediation và risk rating.
-  4. Nếu `effectiveRiskLevel = HIGH` → chuyển sang UC-21 (Human Approval); nếu `LOW` và không bị `requiresApproval` ép buộc (§3.4) → có thể tự động thực thi theo policy.
-- **Điều kiện sau:** Kết quả investigation (root cause, bằng chứng, đề xuất) được gắn vào Incident Detail.
+- **Tác nhân:** Investigation Agent; responder có AI_RUN khởi tạo.
+- **Tiên quyết:** Incident tồn tại, server xác định scope và read-only tool allowlist.
+- **Luồng chính:** Tạo investigation RUNNING; thu thập alert/deployment/RAG cùng optional logs/metrics/dependencies từ adapter thực. Lưu assistant tool calls và tool results theo call ID, evidence refs và tool logs. Trong deadline/budget, tổng hợp hypothesis và dữ kiện thiếu; cập nhật COMPLETED, tạo action đề xuất theo backend risk/gate (§3.4).
+- **Ngoại lệ:** Tool error/timeout/budget → FAILED/TIMED_OUT, giữ log/evidence; không fabricate nguồn, không ảnh hưởng escalation. Confidence chưa hiệu chuẩn phải ghi rõ.
+- **Điều kiện sau:** Kết quả trên incident detail có nguồn kiểm tra; không khẳng định causal root cause chỉ vì deploy gần thời gian lỗi.
 
 **UC-24 — Truy vấn Knowledge Base**
 - **Tác nhân:** On-call Responder; AI Agent
@@ -782,7 +700,7 @@ flowchart LR
     AccountAdmin2 --- UC31
     Commander3 --- UC31
 
-    REF_PM2 -.->|"«include»"| UC26
+    REF_PM2 -.->|"phụ thuộc"| UC26
 
     classDef actorHuman fill:#dbeafe,stroke:#1d4ed8,stroke-width:1.5px,color:#1e3a8a
     classDef usecase fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
@@ -817,8 +735,8 @@ flowchart LR
 - **Điều kiện tiên quyết:** Service đã tồn tại.
 - **Luồng sự kiện chính:**
   1. Team Manager nhập mục tiêu SLO (ví dụ 99.9%) cho service.
-  2. Hệ thống theo dõi mức tiêu hao error budget dựa trên incident ảnh hưởng tới service đó.
-- **Điều kiện sau:** Service có SLO được giám sát; incident mới được quy về tiêu hao error budget.
+  2. Hệ thống lấy SLI từ monitoring adapter, tính good/total hoặc hợp các khoảng unavailable theo §3.5; thiếu nguồn thì báo chưa có dữ liệu.
+- **Điều kiện sau:** Service có SLO versioned; chỉ công bố burn rate khi có SLI/cửa sổ hợp lệ, incident dùng để liên kết giải thích.
 
 **UC-29 — Quản lý Maintenance Window**
 - **Tác nhân:** Team Manager
@@ -826,7 +744,7 @@ flowchart LR
 - **Điều kiện tiên quyết:** Service đã tồn tại.
 - **Luồng sự kiện chính:**
   1. Team Manager tạo maintenance window qua khoảng thời gian bắt đầu/kết thúc.
-  2. Trong khoảng thời gian đó, event khớp service này bị suppress tự động (không tạo incident/notification).
+  2. Trong khoảng thời gian đó, TRIGGER mới khớp bị suppress; RESOLVE đúng episode đã theo dõi vẫn được xử lý.
 - **Điều kiện sau:** Việc bảo trì không gây nhiễu alert giả cho on-call responder.
 
 **UC-30 — Xem Audit Log**
@@ -849,225 +767,227 @@ flowchart LR
 
 ### 4.7 Sơ đồ Bổ sung — Sequence & State Diagram cho các Luồng Phức tạp
 
-Use Case Diagram ở trên trả lời câu hỏi "hệ thống có những gì và ai dùng" nhưng không thể hiện thứ tự thời gian hay vòng đời trạng thái. Bốn sơ đồ dưới đây bổ sung chiều thời gian cho hai luồng phức tạp nhất của nền tảng (Automation & AI Operations, Escalation & Notification) và vòng đời trạng thái của hai entity trung tâm (`Incident`, `PostIncidentReview`), khớp với các fix đã áp dụng ở §2.6 và §3.4.
-
 **4.7.1 Sequence Diagram — Xử lý Automation & AI Operations**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant AI as AI Agent (Investigation)
-    participant INC as Incident Service
+    participant AI as AI / Responder
+    participant API as Automation Service
     participant DB as PostgreSQL
-    participant RESP as Responder / Incident Commander
-    participant CB as Automation Circuit Breaker
-    participant AUTO as Automation Worker
-
-    AI->>AI: Phân tích root-cause, đề xuất Remediation Action
-    AI->>INC: Post recommendation (runbook, riskLevel)
-    INC->>INC: Tính effectiveRiskLevel = max(runbook.riskLevel, serviceCriticality, circuitBreakerPenalty)
-
-    alt effectiveRiskLevel = HIGH hoặc requiresApproval = true
-        INC->>RESP: Yêu cầu Human Approval (kèm evidence từ AI_INVESTIGATION)
-        RESP->>RESP: Xem xét bằng chứng, mức rủi ro
-        RESP->>INC: POST /automation/{id}/approve (approve/reject)
-        INC->>DB: INSERT automation_approvals (bất biến, evidenceSnapshotRef)
-
-        alt Approved
-            INC->>CB: Kiểm tra automation_rate_limits (15 phút gần nhất)
-            alt Chưa vượt ngưỡng
-                CB->>AUTO: Cho phép thực thi
-                AUTO->>AUTO: Thực thi runbook
-                AUTO->>INC: AutomationExecuted
-                INC->>DB: UPDATE automation_executions, tăng rate_limits
-            else Vượt ngưỡng (flapping)
-                CB-->>INC: Chặn thực thi, cảnh báo circuit breaker
-            end
-        else Rejected
-            INC-->>RESP: Đề xuất bị huỷ, xử lý thủ công
+    participant HUM as Assigned Responder / Commander
+    participant W as Automation Worker
+    participant EX as Sandbox Executor
+    AI->>API: Đề xuất runbook, parameters, evidence
+    API->>DB: Lưu snapshot bất biến, risk, action
+    alt Cần approval per-instance
+        API-->>HUM: Action PENDING_APPROVAL và snapshot hash
+        HUM->>API: Approve hoặc Reject cùng hash/version
+        API->>DB: Transaction kiểm tra quyền và CAS, decision, job
+    else Có pre-authorization hợp lệ
+        API->>DB: APPROVED cùng policy version và audit/job
+    end
+    W->>DB: Claim job, revalidate action và incident
+    alt Action APPROVED và guard cho phép
+        W->>DB: Khoá guard, reserve slot, unique execution, CAS EXECUTING, commit
+        W->>EX: Execute với idempotency key bằng executionId
+        alt Outcome xác định
+            EX-->>W: SUCCEEDED hoặc FAILED và evidence
+            W->>DB: Lưu outcome, attempt, breaker state, timeline
+        else Timeout chưa rõ outcome
+            W->>DB: UNKNOWN và reconcile job
+            W->>EX: Query outcome theo executionId, không chạy lại mù
         end
-
-    else effectiveRiskLevel = LOW (pre-authorized theo policy)
-        INC->>CB: Kiểm tra automation_rate_limits
-        CB->>AUTO: Cho phép thực thi (không cần approval per-instance)
-        AUTO->>AUTO: Thực thi runbook
-        AUTO->>INC: AutomationExecuted
-        INC->>DB: UPDATE automation_executions, tăng rate_limits
+    else Hết quota hoặc breaker OPEN
+        W->>DB: Giữ APPROVED, blocked_until, dời job
+    else REJECTED hoặc policy không còn hợp lệ
+        W->>DB: Không dispatch, ghi reason hoặc CANCELLED
     end
 ```
 
-**4.7.2 Sequence Diagram — Escalation & Notification (an toàn với race condition)**
+**4.7.2 Sequence Diagram — Escalation & Notification**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant SCHED as Escalation Scheduler
-    participant ESC as Escalation Worker
-    participant LOCK as Redis (distributed lock)
-    participant PG as PostgreSQL (incidents)
-    participant RESP as On-call Responder
-    participant NOTIFY as Notification Worker
-
-    Note over SCHED: Level 1 timeoutMinutes hết hạn cho INC-1001 (version=3)
-    SCHED->>ESC: Trigger escalation job (incidentId, expectedVersion=3)
-
-    par Nhánh hệ thống — Escalation Worker
-        ESC->>LOCK: SET lock:incident:INC-1001 NX PX 5000
-        LOCK-->>ESC: Lock acquired
-        ESC->>PG: SELECT status, version WHERE id = INC-1001
-        PG-->>ESC: status=TRIGGERED, version=3
-    and Nhánh con người — Responder ACK đồng thời
-        RESP->>PG: POST /incidents/INC-1001/acknowledge
-        PG->>PG: UPDATE incidents SET status=ACKNOWLEDGED, version=4 WHERE version=3
-        PG-->>RESP: 200 OK (ACKNOWLEDGED, version=4)
+    participant R as Responder
+    participant API as Incident API
+    participant E as Escalation Worker
+    participant DB as PostgreSQL
+    participant N as Notification Worker
+    participant P as Provider / Inbox
+    E->>DB: Poll escalate_at đến hạn, claim incident
+    R->>API: ACK với expectedVersion
+    alt ACK transaction thắng trước
+        API->>DB: ACK, deadline NULL, cancel pending jobs, timeline, commit
+        E->>DB: Revalidate TRIGGERED/version/deadline
+        DB-->>E: Không còn hợp lệ, bỏ timeout
+    else Timeout transaction thắng trước
+        E->>DB: Revalidate, level/repeat/deadline mới, unique job, commit
+        N->>DB: Claim delivery, kiểm tra trạng thái hiện tại
+        alt Incident còn cần page
+            N->>P: Gửi ngoài DB transaction
+            P-->>N: Provider accepted hoặc lỗi
+            N->>DB: Lưu outcome/retry
+        else ACK hoặc RESOLVED đã được thấy
+            N->>DB: CANCELLED nếu chưa dispatch
+        end
+        API->>DB: ACK với version mới hoặc trả 409 để client reload
     end
-
-    ESC->>PG: UPDATE incidents SET escalation_level+=1, version+=1 WHERE version=3 AND status='TRIGGERED'
-
-    alt Race thua — Responder đã ACK trước (version đã là 4)
-        PG-->>ESC: affected rows = 0
-        ESC->>ESC: Bỏ qua, không escalate (tránh phantom escalation)
-        ESC->>LOCK: Release lock
-    else Race thắng — chưa ai ACK (version vẫn = 3)
-        PG-->>ESC: affected rows = 1 (version → 4)
-        ESC->>LOCK: Release lock
-        ESC->>NOTIFY: Publish IncidentEscalated (level=2)
-        NOTIFY->>RESP: Notify toàn bộ target Level 2 (song song, có thể re-notify)
-    end
+    Note over API,P: ACK không thu hồi được send đã bắt đầu. CAS 0 không luôn có nghĩa đã ACK.
 ```
 
 **4.7.3 State Diagram — Vòng đời Incident**
 
 ```mermaid
 stateDiagram-v2
-    [*] --> TRIGGERED : Alert đủ điều kiện tạo Incident (UC-10)
-
-    state TRIGGERED {
-        [*] --> Level1
-        Level1 --> Level2 : Timeout hết hạn, chưa ACK (UC-12)
-        Level2 --> LevelN : Timeout hết hạn, chưa ACK
-        LevelN --> LevelN : Đã ở level cuối — re-notify toàn team
-    }
-
-    TRIGGERED --> ACKNOWLEDGED : Responder acknowledge (UC-11)\nEscalation timer dừng
-    TRIGGERED --> RESOLVED : Auto-resolve (event RESOLVE cùng dedupKey)
-    ACKNOWLEDGED --> RESOLVED : Responder resolve (UC-19)\nhoặc Auto-resolve
-
-    RESOLVED --> [*] : Giải phóng dedup key (DEL dedup:key)\nYêu cầu AI Postmortem (UC-25)
+    [*] --> TRIGGERED : Tạo incident và durable jobs
+    TRIGGERED --> TRIGGERED : Repeat hoặc level hợp lệ, deadline mới
+    TRIGGERED --> TRIGGERED : Hết policy, backstop một lần và exhausted
+    TRIGGERED --> ACKNOWLEDGED : ACK, xoá deadline
+    TRIGGERED --> RESOLVED : Mọi alert liên kết đã recovery
+    ACKNOWLEDGED --> RESOLVED : Recovery tất cả hoặc manual resolve có lý do
+    RESOLVED --> [*] : Đóng episode, huỷ timer, yêu cầu PIR
+    note right of TRIGGERED
+        Level, assignee và delivery status là thuộc tính riêng.
+        Không có state incident ESCALATED hoặc DELIVERED.
+    end note
 ```
 
 **4.7.4 State Diagram — Vòng đời Post-Incident Review (PIR)**
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT : AI Postmortem Agent tạo bản nháp (UC-25)\nsau khi Incident RESOLVED
-
-    DRAFT --> IN_REVIEW : Incident Commander / Team Manager bắt đầu review (UC-26)
-    IN_REVIEW --> DRAFT : Yêu cầu AI soạn lại / bổ sung bằng chứng
-    IN_REVIEW --> APPROVED : Nội dung + action items được duyệt
-    APPROVED --> COMPLETED : Toàn bộ action item (BUG_FIX, INFRASTRUCTURE,\nMONITORING, PROCESS, DOCUMENTATION, SECURITY) hoàn tất
-
-    COMPLETED --> [*] : Lưu vào Knowledge Base\n(context cho AI Investigation sau này)
+    [*] --> DRAFT : Sau resolve, AI draft hoặc người tạo
+    DRAFT --> IN_REVIEW : Commander bắt đầu review
+    IN_REVIEW --> DRAFT : Yêu cầu bổ sung bằng chứng
+    IN_REVIEW --> APPROVED : Duyệt nội dung và action items
+    APPROVED --> COMPLETED : Action items hoàn tất
+    COMPLETED --> [*]
+    note right of APPROVED
+        Chỉ phiên bản được duyệt mới index vào Knowledge Base.
+    end note
 ```
 
-> **Lưu ý:** cạnh `IN_REVIEW → DRAFT` ở sơ đồ PIR là bổ sung hợp lý ngoài mô tả gốc ở §3.5 (vốn chỉ liệt kê chuỗi trạng thái tiến thẳng `DRAFT → IN_REVIEW → APPROVED → COMPLETED`), phản ánh thực tế review thường yêu cầu chỉnh sửa lại bản nháp trước khi duyệt.
-
-**4.7.5 Sequence Diagram — Event Ingestion (UC-07): Rate Limiting & Idempotency**
+**4.7.5 Sequence Diagram — Event Ingestion: Idempotency & Atomic Handoff**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant MON as Monitoring System
-    participant ING as Event Ingestion API
-    participant RL as Redis (Rate Limiter)
-    participant CACHE as Redis (Idempotency Cache)
-    participant PG as PostgreSQL (idempotency_keys)
-    participant BUS as Kafka
-
-    MON->>ING: POST /api/v1/events<br/>Idempotency-Key: X, dedupKey: Y
-
-    ING->>RL: INCR token bucket (integrationId)
-    alt Vượt rate limit (>100 req/s)
-        RL-->>ING: Từ chối
-        ING-->>MON: 429 Too Many Requests
-    else Trong hạn mức
-        ING->>CACHE: GET idempotency:X (fast-path)
-        alt Cache hit
-            CACHE-->>ING: response đã lưu
-            ING-->>MON: 200 OK (kết quả cũ, không xử lý lại)
-        else Cache miss
-            ING->>PG: INSERT idempotency_keys (key=X) ON CONFLICT DO NOTHING
-            alt Conflict — key đã tồn tại (race giữa 2 request đồng thời)
-                PG-->>ING: trả về response_body đã lưu
-                ING->>CACHE: SET idempotency:X (đồng bộ lại cache)
-                ING-->>MON: 200 OK (kết quả cũ)
-            else Không conflict — event mới
-                ING->>ING: Xử lý event, sinh response
-                ING->>PG: UPDATE idempotency_keys SET response_body
-                ING->>CACHE: SET idempotency:X (TTL chỉ để dọn rác)
-                ING->>BUS: Publish EventReceived (partition theo serviceId)
-                ING-->>MON: 200 OK (event mới, đã nhận)
+    participant M as Monitoring
+    participant API as Ingestion API
+    participant C as Optional Redis Cache
+    participant DB as PostgreSQL
+    participant W as Job Worker / Outbox Relay
+    M->>API: POST event, key, episodeId, sourceSequence
+    API->>API: Auth, service scope, schema, rate limit, canonical hash
+    API->>C: Lookup scoped key
+    alt Cache hit với cùng hash
+        C-->>API: Committed response
+        API-->>M: Replay nguyên status/body
+    else Cache miss hoặc không dùng cache
+        API->>DB: BEGIN, INSERT claim PROCESSING ON CONFLICT DO NOTHING
+        alt Claim winner
+            API->>DB: Khoá service, event, stream, alert, incident, timeline, audit, jobs/outbox
+            API->>DB: Lưu response, COMPLETED, COMMIT
+            API->>C: Cache response sau commit
+            API-->>M: 200 cùng outcome
+            W->>DB: Claim nghĩa vụ đã commit
+            W->>W: Dispatch sau commit, retry idempotent
+        else Claim loser sau winner commit
+            API->>DB: SELECT mới, so hash và đọc response
+            alt Hash khớp
+                API-->>M: Replay nguyên status/body
+            else Hash khác
+                API-->>M: 409 KEY_REUSED
             end
         end
+    else Cache hit nhưng hash khác
+        API-->>M: 409 KEY_REUSED
     end
+    Note over API,DB: Claim timeout trả 503 Retry-After. Crash trước commit rollback cả claim và domain.
 ```
-*Ý nghĩa:* đây là con đường lưu lượng cao nhất hệ thống — mọi bug ở đây nhân lên theo throughput ingestion. Sơ đồ dựng đúng nguyên tắc "Redis là fast-path, PostgreSQL là nguồn chân lý" đã fix ở §2.6: `ON CONFLICT DO NOTHING` xử lý đúng cả trường hợp hai request trùng `Idempotency-Key` đến gần như đồng thời (race condition ở chính bước ghi DB, không chỉ ở bước đọc cache).
 
-**4.7.6 Decision Flow — Dedup Key Lifecycle (UC-09)**
+**4.7.6 Decision Flow — Dedup & Recovery theo Episode**
 
 ```mermaid
 flowchart TD
-    START(["Event đã qua Orchestration,<br/>không bị suppress"]) --> CHECK{"Tồn tại Alert nào<br/>cùng service_id + dedup_key<br/>VÀ status ≠ RESOLVED?"}
-
-    CHECK -->|"Có — alert đang mở"| MERGE["Gộp event vào Alert đang mở<br/>Publish AlertDeduplicated"]
-    CHECK -->|"Không — chưa từng có,<br/>HOẶC alert cùng key đã RESOLVED"| CREATE["Tạo Alert mới<br/>(unique index uniq_open_dedup)<br/>Publish AlertCreated"]
-
-    MERGE --> GROUP_CHECK{"Có alert khác cùng<br/>thời điểm/service liên quan?"}
-    CREATE --> GROUP_CHECK
-
-    GROUP_CHECK -->|"Có"| GROUP["Gộp nhóm (Alert Group)<br/>Publish AlertGrouped"]
-    GROUP_CHECK -->|"Không"| DONE(["Sẵn sàng cho Incident Management (UC-10)"])
-    GROUP --> DONE
-
-    classDef decision fill:#fef9c3,stroke:#ca8a04,color:#713f12
-    classDef action fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef terminal fill:#e0e7ff,stroke:#4338ca,color:#312e81
-    class CHECK,GROUP_CHECK decision
-    class MERGE,CREATE,GROUP action
-    class START,DONE terminal
+    S["Event đã validate, claim key, khoá service"] --> O{"Sequence / episode hợp lệ?"}
+    O -->|"Cũ hoặc đã đóng"| NO["No-op có audit; conflict payload trả 409"]
+    O -->|"Hợp lệ"| TYPE{"TRIGGER hay RESOLVE?"}
+    TYPE -->|"TRIGGER"| SUP{"Suppression?"}
+    SUP -->|"Có"| STORE["Lưu event SUPPRESSED, không tạo incident"]
+    SUP -->|"Không"| OPEN{"Alert OPEN đúng namespace/episode?"}
+    OPEN -->|"Có"| COUNT["Tăng occurrence nguyên tử, events.alert_id"]
+    OPEN -->|"Không"| NEW["Tạo alert, group vào incident active hoặc tạo incident"]
+    TYPE -->|"RESOLVE"| MATCH{"Có alert đúng episode?"}
+    MATCH -->|"Không"| TOMB["No-op, lưu watermark/tombstone"]
+    MATCH -->|"Có"| AR["Resolve alert mục tiêu"]
+    AR --> ALL{"Mọi alert của incident đã resolved?"}
+    ALL -->|"Không"| KEEP["Giữ incident mở"]
+    ALL -->|"Có"| IR["Resolve incident, huỷ timer, PIR job"]
+    COUNT --> COM["Domain, timeline, audit, response, jobs/outbox commit cùng nhau"]
+    NEW --> COM
+    STORE --> COM
+    TOMB --> COM
+    KEEP --> COM
+    IR --> COM
 ```
-*Ý nghĩa:* trực quan hoá đúng fix N1 (đợt audit) — nhánh "chưa từng có" và nhánh "cũ đã RESOLVED" trông khác nhau về mặt dữ liệu nhưng phải dẫn tới **cùng một hành động** (tạo alert mới). Đây chính là lỗi logic ban đầu tài liệu mắc phải (coi 2 trường hợp này khác nhau, dẫn tới sự cố lặp lại bị gộp nhầm vào alert cũ).
 
-**4.7.7 Sequence Diagram — AI Tool-Calling Loop (UC-22/UC-23, mô hình ReAct)**
+**4.7.7 Sequence Diagram — AI Tool-Calling Loop**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant INC as Incident Service
-    participant AGENT as AI Agent (LLM Orchestrator)
-    participant TOOLS as Tool Registry
-    participant DATA as Platform Data<br/>(getAlerts, getLogs, getMetrics,<br/>getRecentDeployments, getDependencies)
-    participant KB as Knowledge Base (RAG / PGVector)
-
-    INC->>AGENT: IncidentCreated (context ban đầu: service, severity, alerts)
-    AGENT->>AGENT: Lập kế hoạch — cần thông tin gì để chẩn đoán?
-
-    loop Tối đa N vòng lặp tool-calling
-        AGENT->>TOOLS: Chọn tool phù hợp (ví dụ getRecentDeployments)
-        TOOLS->>DATA: Gọi tool tương ứng
-        DATA-->>TOOLS: Kết quả (ví dụ: deploy v1.42, 10 phút trước)
-        TOOLS-->>AGENT: Trả kết quả cho LLM
-        AGENT->>AGENT: Đánh giá đủ bằng chứng chưa?<br/>Ghi lại vào ai_tool_calls
+    participant W as AI Worker
+    participant DB as PostgreSQL
+    participant L as LLM
+    participant T as Read-only Tool Registry
+    participant D as Platform / Deployment / RAG Adapter
+    W->>DB: INSERT investigation RUNNING
+    loop Trong giới hạn 8 vòng, 120 giây và token budget
+        W->>L: History gồm assistant tool calls và tool results trước đó
+        L-->>W: Assistant message chứa tool calls hoặc final answer
+        W->>DB: Lưu assistant message và call IDs
+        opt Có tool calls
+            W->>T: Validate schema, allowlist và server scope
+            T->>D: Read có timeout và quyền tối thiểu
+            D-->>T: Evidence refs hoặc lỗi rõ ràng
+            T-->>W: Tool results khớp call IDs
+            W->>DB: Lưu ai_tool_calls và tool-result messages
+        end
     end
-
-    AGENT->>KB: searchPastIncidents / searchKnowledge (RAG)
-    KB-->>AGENT: Top-k incident/runbook tương tự + độ liên quan
-
-    AGENT->>AGENT: Tổng hợp hypothesis + confidenceScore<br/>+ đề xuất remediation + riskLevel
-    AGENT->>INC: INSERT ai_investigations (hypothesis, confidenceScore, evidence refs)
-    AGENT->>INC: Post recommendation (→ tiếp nối ở sơ đồ 4.7.1)
+    alt Có kết quả trong budget
+        W->>DB: COMPLETED, hypothesis, evidence, dữ kiện thiếu
+        W->>DB: Action đề xuất theo backend policy nếu phù hợp
+    else Lỗi hoặc hết deadline
+        W->>DB: FAILED hoặc TIMED_OUT, giữ evidence đã có
+    end
+    Note over W,D: Logs/RAG không có quyền ra lệnh. Escalation không đợi AI.
 ```
-*Ý nghĩa:* thể hiện đúng bản chất "AI Agent Platform" như §1.1 mô tả — không phải một lệnh gọi LLM đơn lẻ, mà một vòng lặp tool-calling nhiều bước, mỗi bước được ghi vào `ai_tool_calls` để phục vụ audit trail (khớp entity đã thêm ở ERD §5.3 sau fix N6). Sơ đồ này là tiền đề của sơ đồ 4.7.1 — điểm nối là bước cuối "Post recommendation".
+
+**4.7.8 State Diagram — Automation Action**
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING_APPROVAL : Cần per-instance approval
+    [*] --> APPROVED : Pre-authorization hợp lệ
+    PENDING_APPROVAL --> APPROVED : Approve đúng snapshot
+    PENDING_APPROVAL --> REJECTED : Reject
+    PENDING_APPROVAL --> CANCELLED : Incident đóng hoặc snapshot hết hiệu lực
+    APPROVED --> APPROVED : Guard blocked, dời job
+    APPROVED --> EXECUTING : CAS và reservation, execution unique
+    APPROVED --> CANCELLED : Revalidation thất bại
+    EXECUTING --> SUCCEEDED : Outcome xác nhận
+    EXECUTING --> FAILED : Lỗi xác định
+    EXECUTING --> UNKNOWN : Timeout hoặc mất outcome
+    UNKNOWN --> SUCCEEDED : Reconcile có bằng chứng
+    UNKNOWN --> FAILED : Reconcile có bằng chứng
+    SUCCEEDED --> [*]
+    FAILED --> [*]
+    REJECTED --> [*]
+    CANCELLED --> [*]
+```
 
 ---
 
@@ -1075,270 +995,561 @@ sequenceDiagram
 
 ### 5.1 Tổng quan Entity theo Domain
 
-| Domain | Bảng chính |
-|---|---|
-| Identity & Access | `users`, `roles`, `permissions`, `user_roles`, `role_permissions`, `organizations`, `teams`, `team_members` |
-| Service & Integration | `services`, `service_dependencies`, `integrations`, `maintenance_windows` |
-| Event & Alert Processing | `events`, `alerts`, `alert_groups`, `routing_rules`, `orchestration_rules`, `idempotency_keys` |
-| Incident Management | `incidents` (kèm cột `version` cho optimistic locking), `incident_alerts`, `incident_events`, `incident_notes`, `incident_responders` (kèm cột `role`: Incident Commander/Technical Lead/Communications Lead/Scribe/Responder), `incident_subscribers` |
-| On-call & Escalation | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules` (kèm `repeatCount`/`repeatIntervalMinutes`), `escalation_rule_targets` (junction — mỗi rule có thể có **nhiều target song song**: nhiều `USER`/`SCHEDULE`/`TEAM` trong cùng một level) |
-| Notification | `notification_rules`, `notification_deliveries` |
-| Automation & Workflow | `workflows`, `workflow_steps`, `workflow_executions`, `runbooks`, `automation_actions`, `automation_approvals`, `automation_executions`, `automation_rate_limits` |
-| Knowledge & AI | `knowledge_documents`, `knowledge_chunks`, `embeddings`, `ai_agents`, `ai_sessions`, `ai_tool_calls`, `ai_investigations` |
-| Governance & Analytics | `post_incident_reviews`, `post_incident_actions`, `audit_logs`, `slo_configs`, `service_metrics` |
+Tên snake_case dưới đây dùng thống nhất cho bảng vật lý và ERD; DTO có thể dùng camelCase. Schema là đặc tả thiết kế, chưa thay cho migration đã chạy. Cột thời gian là TIMESTAMPTZ (instant UTC); cột nullable được giải thích trong §5.2. Các FK phải có index theo đường query.
 
-> **Sửa sau audit:** đổi tên `service_integrations` → `integrations` cho khớp entity `INTEGRATION` ở ERD §5.3 (trước đây hai nơi dùng hai tên khác nhau cho cùng một bảng); bổ sung `role_permissions` (đã có trong ERD nhưng thiếu ở bảng này) và `escalation_rule_targets` (bảng thực sự hiện thực tính năng multi-target/level đã mô tả ở §3.3 nhưng trước đây chỉ có ghi chú, chưa có bảng).
+| Domain | Bảng |
+|---|---|
+| Identity | `organizations`, `users`, `teams`, `team_members`, `roles`, `permissions`, `user_roles`, `role_permissions` |
+| Service | `services`, `integrations`, `service_dependencies`, `deployments`, `maintenance_windows` |
+| Event/Alert | `idempotency_keys`, `alert_streams`, `events`, `alerts`, `orchestration_rules` |
+| Incident | `incidents`, `incident_events`, `incident_responders`, `incident_notes`, `incident_status_updates`, `incident_subscribers` |
+| On-call | `schedules`, `schedule_layers`, `schedule_members`, `schedule_overrides`, `escalation_policies`, `escalation_rules`, `escalation_rule_targets` |
+| Delivery | `jobs`, `outbox_events`, `consumer_receipts`, `notification_rules`, `notification_deliveries`, `notification_inbox` |
+| AI/Knowledge | `ai_investigations`, `ai_tool_calls`, `knowledge_documents`, `knowledge_chunks` (embedding PGVector trực tiếp) |
+| Automation | `runbooks`, `runbook_versions`, `automation_policies`, `evidence_snapshots`, `automation_actions`, `automation_approvals`, `automation_executions`, `automation_attempts`, `automation_guards`, `automation_reservations` |
+| Governance | `post_incident_reviews`, `post_incident_actions`, `audit_logs`, `slo_configs`, `service_metrics`, `status_page_entries` |
+
+Không dùng `incident_alerts` many-to-many song song với `alerts.incident_id`; grouping là quan hệ này, chưa cần `alert_groups` riêng. Không dùng bảng bucket `automation_rate_limits` cũ vì policy đã chọn sliding reservation + guard. Agent configuration là cấu hình ứng dụng versioned; chưa cần ai_agents/ai_sessions riêng. Workflow engine tổng quát là roadmap, không phải prerequisite của runbook đơn.
 
 ### 5.2 Quan hệ Entity Cốt lõi
 
-Một `Organization` sở hữu `Users` và `Teams`; mỗi `Team` sở hữu một hoặc nhiều `Services`. Mỗi `Service` liên kết với một `Integration` (cho event ingestion), một `EscalationPolicy` (cho routing), một `Schedule` (để resolve on-call), và tập hợp `Dependencies` với các service khác. `Events` đầu vào được chuyển thành `Alerts` gắn với một `Service`; các `Alerts` liên quan được gộp vào một `Incident`, incident này tích luỹ `Responders` (mỗi responder có một `role` — Incident Commander, Technical Lead, Communications Lead, Scribe, hoặc Responder), một `Timeline`, `Notes`, `Status Updates`, một hoặc nhiều `AI Investigation`, các lần thực thi `Automation` kèm `Approval` tương ứng, và cuối cùng là một `Postmortem`.
+- Organization chứa users/teams; service thuộc team, có nhiều integrations. Integration key bị giới hạn service; client không được tự chọn tenant. Policy có thể phục vụ nhiều service trong cùng team; schedule chỉ là một loại escalation target, không bắt buộc gắn trực tiếp service.
+- Event có alert FK nullable cho suppressed/stale/unmatched recovery; nhiều event có thể trỏ cùng alert. Alert có một stream episode, tối đa một incident qua nullable `incident_id` (alert chưa đạt ngưỡng có thể chưa tạo incident). Alert đã gắn incident không chuyển sang incident khác trong baseline. Incident có ít nhất một alert sau transaction tạo bằng monitoring.
+- Idempotency claim `response_*` nullable khi PROCESSING nhưng chỉ commit COMPLETED; transaction failure rollback cả claim. Integration FK là namespace nên bảng này có mặt trong ERD.
+- `incidents.escalation_policy_snapshot` chứa ID/version, rules/targets, backstop đã validate; cấu hình thay đổi không âm thầm đổi incident đang xử lý. `escalate_at` nullable khi ACK/RESOLVED/exhausted. First ACK, resolved, actual failure và detected timestamp nullable theo lifecycle. `version` tăng với mỗi mutation; `incident_events` unique `(incident_id,aggregate_version)` cho một payload transition tổng hợp.
+- `automation_actions.ai_investigation_id` nullable với action do người tạo, `policy_id` nullable với approval per-instance; `requested_by` nullable với SYSTEM/AI có actor type trong audit. Mỗi action có evidence snapshot tồn tại trong DB, runbook version bất biến; action hash bao trùm runbook version, parameters, target, effective risk và evidence hash. Các state/time tương ứng được CHECK. Một decision/action, một logical execution/action; nhiều transport attempts/execution. UNKNOWN không được tạo execution mới.
+- `audit_logs.actor_id` nullable cho SYSTEM/INTEGRATION/AI; `actor_type` và payload xác định chủ thể thực, incident_id nullable cho thao tác cấu hình. Outbox resource/event identifiers không dùng FK đa hình giả; consumer_receipts là identity xử lý message.
 
-**Bổ sung sau kiểm toán (audit fix N6).** Chuỗi truy vết `Incident → AI Investigation → Automation Action → Approval → Execution` trước đây không có trong ERD dù là trụ cột của cơ chế Human Approval Gate (§2.6) — nếu không có bản ghi bất biến "AI đã trình bày bằng chứng gì tại thời điểm approve", hệ thống không thể audit lại quyết định approve sau này. ERD dưới đây bổ sung đầy đủ chuỗi này, cùng với RBAC (`Role`/`Permission`) và `AuditLog` — trước đó chỉ xuất hiện ở bảng tổng quan §5.1 chứ chưa có trong sơ đồ quan hệ.
+Các bảng hỗ trợ/roadmap không mở rộng chi tiết trong ERD lõi có contract tối thiểu sau (UUID id PK trừ khi ghi khác; FK thể hiện bằng mũi tên):
 
-**Sửa sau audit (vòng 2).** Ba khoảng trống được phát hiện và vá ở ERD dưới đây: **(1)** `SERVICE_DEPENDENCY` trước đây chỉ có một cạnh quan hệ dù bản chất là self-referencing many-to-many (Service phụ thuộc Service khác) — nay thêm cạnh thứ hai; **(2)** `ESCALATION_RULE` trước đây trỏ thẳng tới `SCHEDULE` (target đơn), không khớp với tính năng multi-target/level đã mô tả ở §3.3 — nay thay bằng junction `ESCALATION_RULE_TARGET` (polymorphic `targetType`/`targetId`); **(3)** `automation_rate_limits` đã có ở bảng tổng quan §5.1 nhưng chưa từng xuất hiện trong ERD dù là trụ cột của Automation Circuit Breaker (§2.6) — nay bổ sung đầy đủ. `idempotency_keys` **chủ động không đưa vào ERD**: bảng này không có quan hệ FK với entity nào khác (khoá bằng chuỗi `key`, không phải quan hệ), nên không thuộc phạm vi "core relationships" của sơ đồ này.
+| Bảng | Cột và ràng buộc tối thiểu |
+|---|---|
+| `maintenance_windows` | service_id → services, starts_at, ends_at, created_by → users; starts_at < ends_at |
+| `orchestration_rules` | service_id → services, version, priority, conditions JSONB, actions JSONB, enabled; validation allowlist |
+| `incident_notes` | incident_id → incidents, author_id → users, body, created_at |
+| `incident_status_updates` | incident_id → incidents, author_id → users, body, audience, approved_at nullable, created_at |
+| `incident_subscribers` | PK(incident_id → incidents, user_id → users) |
+| `schedule_layers` | schedule_id → schedules, name, precedence, starts_at, rotation_rule JSONB |
+| `schedule_members` | PK(layer_id → schedule_layers, user_id → users), position |
+| `schedule_overrides` | schedule_id → schedules, user_id → users, starts_at, ends_at, priority; deterministic conflict rejection |
+| `notification_rules` | user_id → users, priority, channel, delay_seconds, enabled |
+| `knowledge_documents` | organization_id → organizations, service_id → services nullable, source_type/id, version, source_uri, ACL JSONB, content_hash, status |
+| `knowledge_chunks` | document_id → knowledge_documents, ordinal, text, embedding VECTOR(d), embedding_model/version, UNIQUE(document_id,ordinal); dimension d pinned theo model |
+| `slo_configs` | service_id → services, version, sli_type, target, window, query_ref, active; target trong (0,1) |
+| `service_metrics` | service_id → services, slo_config_id → slo_configs, interval_start/end, good, total, source, quality; UNIQUE(slo_config_id,interval_start,interval_end) |
+| `status_page_entries` | service_id → services, incident_id → incidents nullable, state, message, audience, approved_by → users nullable, published_at |
 
-**Sửa sau audit (vòng 3 — tầng vận hành database).** Bốn khoảng trống ở tầng "database thật sự chạy được" chứ không chỉ quan hệ logic: **(1)** `INCIDENT`/`ALERT` trước đây thiếu hẳn các trường timestamp (`triggeredAt`, `acknowledgedAt`, `resolvedAt`, `createdAt`) dù công thức MTTA/MTTR ở §3.5 tính trực tiếp từ các trường này — nay bổ sung đầy đủ, kèm `actualFailureAt` (nullable, phục vụ MTTD); **(2)** thêm `organizationId` denormalized trên `INCIDENT`/`ALERT`/`EVENT` để cô lập dữ liệu multi-tenant hiệu quả (chi tiết RLS ở §5.4); **(3)** bổ sung `POST_INCIDENT_ACTION` (action item có owner/due date, khớp luồng UC-26) và `NOTIFICATION_DELIVERY` (trạng thái gửi, khớp Retry/DLQ §2.6) — cả hai đã có tên bảng ở §5.1 nhưng trước đây vắng mặt trong ERD; **(4)** xem thêm §5.4 cho retention, partitioning, và chính sách xoá dữ liệu.
+**State/ownership contract bổ sung.** jobs: PENDING/RUNNING/RETRYING/SUCCEEDED/FAILED/DLQ/CANCELLED; notification_deliveries: PENDING/SENDING/SENT/RETRYING/FAILED/DLQ/CANCELLED (DELIVERED là provider receipt tuỳ adapter, không phải ACK). Inbox unique(delivery_id,user_id), cursor tăng ổn định. Relay outbox cũng có lease/generation/backoff; không publish incident version sau khi version trước chưa được xác nhận. Domain-to-job dispatch không đồng thời xử lý hai lần qua DB worker và Kafka: cấu hình một đường delivery cho từng job type; message ID giữ nguyên nếu chuyển đường.
+
+`user_roles.team_id` nullable cho role cấp organization; tenant suy ra từ users, role scoped assignment không vượt organization của user. `services.escalation_policy_id` nullable khi chưa active; service phải có policy/target/backstop hợp lệ trước khi nhận TRIGGER tạo incident. `incidents.assignee_id` nullable khi chưa resolve được target; backstop vẫn bắt buộc. Provider/deployment demo có `source=SIMULATOR` để phân biệt evidence thật. PIR job unique theo incident, retry không tạo PIR thứ hai; regenerate chỉ sửa DRAFT có version, không ghi đè bản đã APPROVED.
+
+**Indexes và constraints bắt buộc.** SQL dưới đây áp dụng sau khi migrations đã tạo các bảng/cột ở ERD; đây không phải script bootstrap độc lập.
+
+```sql
+CREATE UNIQUE INDEX uq_idempotency_scope ON idempotency_keys (integration_id, key);
+CREATE UNIQUE INDEX uq_alert_stream ON alert_streams (integration_id, service_id, dedup_key);
+CREATE UNIQUE INDEX uq_alert_episode ON alerts (stream_id, episode_id);
+CREATE UNIQUE INDEX uniq_open_dedup ON alerts (integration_id, service_id, dedup_key)
+  WHERE status = 'OPEN';
+CREATE INDEX ix_due_incident ON incidents (escalate_at)
+  WHERE status = 'TRIGGERED' AND escalate_at IS NOT NULL;
+CREATE UNIQUE INDEX uq_incident_number ON incidents (organization_id, incident_number);
+CREATE UNIQUE INDEX uq_incident_transition ON incident_events (incident_id, aggregate_version);
+CREATE UNIQUE INDEX uq_tool_call ON ai_tool_calls (ai_investigation_id, call_id);
+CREATE UNIQUE INDEX uq_runbook_version ON runbook_versions (runbook_id, version);
+CREATE UNIQUE INDEX uq_action_request ON automation_actions (incident_id, request_key);
+CREATE INDEX ix_reservation_window ON automation_reservations (service_id, runbook_id, reserved_at);
+CREATE INDEX ix_due_job ON jobs (available_at, lease_until)
+  WHERE status IN ('PENDING', 'RETRYING', 'RUNNING');
+ALTER TABLE alerts ADD CONSTRAINT ck_alert_count CHECK (occurrence_count > 0);
+ALTER TABLE alerts ADD CONSTRAINT ck_alert_state CHECK (
+  (status = 'OPEN' AND resolved_at IS NULL) OR
+  (status = 'RESOLVED' AND resolved_at IS NOT NULL));
+ALTER TABLE escalation_rule_targets ADD CONSTRAINT ck_one_target CHECK (
+  num_nonnulls(user_id, schedule_id, team_id) = 1);
+ALTER TABLE idempotency_keys ADD CONSTRAINT ck_idempotency_response CHECK (
+  state IN ('PROCESSING', 'COMPLETED') AND
+  (state <> 'COMPLETED' OR (response_status IS NOT NULL AND response_body IS NOT NULL)));
+```
+
+Các unique PK/UK còn lại thể hiện trong ERD; `(policy_id,level)`, `(execution_id,attempt_no)` và `(service_id,external_id)` của deployment cũng unique. Counter tăng bằng SQL nguyên tử, không read/increment/save. `event_type` CHECK TRIGGER/RESOLVE, incident state CHECK TRIGGERED/ACKNOWLEDGED/RESOLVED, criticality CHECK CRITICAL/HIGH/NORMAL. Incident resolved phải có resolved_at và escalate_at NULL; ACK phải có acknowledged_at và escalate_at NULL. Notification/automation terminal outcomes phải có timestamp tương ứng; window/repeat/attempt không âm. Response claim không được commit PROCESSING: service transaction và deferred constraint trigger trong migration kiểm tra final row state tại commit. Invariant không có OPEN alert trên RESOLVED incident được kiểm tra trong cùng service lock; deferred constraint trigger là lớp chặn cho mọi mutation alert/incident. Cross-service/integration FK phải kiểm tra bằng composite FK hoặc trigger theo tổ hợp ownership, không chỉ kiểm tra từng UUID tồn tại.
 
 ### 5.3 Sơ đồ Quan hệ Thực thể (ERD)
 
+ERD tập trung đường đi dữ liệu lõi và correctness. Các thuộc tính bổ sung cấu hình/roadmap nằm ở §5.2; `PK`, `FK`, `UK` là ràng buộc thiết kế cần hiện thực bằng migration, không tự phát sinh từ Mermaid.
+
 ```mermaid
 erDiagram
-    ORGANIZATION ||--o{ TEAM : contains
-    ORGANIZATION ||--o{ USER : employs
-    TEAM ||--o{ TEAM_MEMBER : has
-    USER ||--o{ TEAM_MEMBER : "belongs to"
-    TEAM ||--o{ SERVICE : owns
-    SERVICE ||--o{ SERVICE_DEPENDENCY : "depends on (serviceId)"
-    SERVICE_DEPENDENCY }o--|| SERVICE : "points to (dependsOnServiceId)"
-    SERVICE ||--o{ INTEGRATION : has
-    SERVICE ||--o| ESCALATION_POLICY : uses
-    ESCALATION_POLICY ||--o{ ESCALATION_RULE : contains
-    ESCALATION_RULE ||--o{ ESCALATION_RULE_TARGET : "có nhiều target song song"
-    SCHEDULE ||--o{ SCHEDULE_LAYER : contains
-    INTEGRATION ||--o{ EVENT : receives
-    EVENT ||--o| ALERT : "processed into"
-    ALERT }o--|| SERVICE : "scoped to"
-    ALERT }o--o{ INCIDENT : "aggregated into"
-    INCIDENT }o--|| SERVICE : impacts
-    INCIDENT ||--o{ INCIDENT_RESPONDER : has
-    USER ||--o{ INCIDENT_RESPONDER : "assigned as"
-    INCIDENT ||--o{ INCIDENT_EVENT : logs
-    INCIDENT ||--o| POST_INCIDENT_REVIEW : generates
-    POST_INCIDENT_REVIEW ||--o{ POST_INCIDENT_ACTION : contains
-    POST_INCIDENT_ACTION }o--|| USER : "owned by"
-    INCIDENT ||--o{ NOTIFICATION_DELIVERY : triggers
-    USER ||--o{ NOTIFICATION_DELIVERY : "target of"
-
-    USER ||--o{ USER_ROLE : has
-    ROLE ||--o{ USER_ROLE : "granted via"
-    ROLE ||--o{ ROLE_PERMISSION : includes
-    PERMISSION ||--o{ ROLE_PERMISSION : "granted by"
-    USER ||--o{ AUDIT_LOG : performs
-
-    INCIDENT ||--o{ AI_INVESTIGATION : produces
-    AI_INVESTIGATION ||--o{ AI_TOOL_CALL : uses
-    AI_INVESTIGATION ||--o| AUTOMATION_ACTION : recommends
-    SERVICE ||--o{ RUNBOOK : defines
-    RUNBOOK ||--o{ AUTOMATION_ACTION : "instantiated as"
-    AUTOMATION_ACTION ||--o| AUTOMATION_APPROVAL : requires
-    AUTOMATION_APPROVAL }o--|| USER : "decided by"
-    AUTOMATION_ACTION ||--o| AUTOMATION_EXECUTION : triggers
-    SERVICE ||--o{ AUTOMATION_RATE_LIMIT : "đếm theo cửa sổ thời gian"
-    RUNBOOK ||--o{ AUTOMATION_RATE_LIMIT : "đếm theo cửa sổ thời gian"
-
-    ORGANIZATION {
+    organizations ||--o{ users : contains
+    organizations ||--o{ teams : contains
+    teams ||--o{ team_members : has
+    users ||--o{ team_members : joins
+    users ||--o{ user_roles : assigned
+    roles ||--o{ user_roles : grants
+    roles ||--o{ role_permissions : has
+    permissions ||--o{ role_permissions : maps
+    teams ||--o{ services : owns
+    services ||--o{ service_dependencies : source
+    services ||--o{ service_dependencies : target
+    services ||--o{ integrations : has
+    integrations ||--o{ idempotency_keys : scopes
+    integrations ||--o{ events : receives
+    integrations ||--o{ alert_streams : scopes
+    alert_streams ||--o{ alerts : episodes
+    alerts |o--o{ events : traces
+    services ||--o{ alerts : owns
+    incidents |o--o{ alerts : groups
+    services ||--o{ incidents : impacts
+    incidents ||--o{ incident_events : records
+    incidents ||--o{ incident_responders : assigns
+    users ||--o{ incident_responders : responds
+    incidents |o--o{ audit_logs : correlates
+    users |o--o{ audit_logs : acts
+    escalation_policies |o--o{ services : selected
+    escalation_policies ||--o{ escalation_rules : contains
+    escalation_rules ||--o{ escalation_rule_targets : targets
+    schedules |o--o{ escalation_rule_targets : resolves
+    incidents |o--o{ jobs : schedules
+    incidents ||--o{ notification_deliveries : triggers
+    users ||--o{ notification_deliveries : receives
+    notification_deliveries ||--o| notification_inbox : persists
+    services ||--o{ deployments : history
+    incidents ||--o{ ai_investigations : investigates
+    ai_investigations ||--o{ ai_tool_calls : calls
+    services ||--o{ runbooks : allows
+    runbooks ||--o{ runbook_versions : versions
+    runbook_versions ||--o{ automation_policies : authorizes
+    runbook_versions ||--o{ automation_actions : instantiates
+    incidents ||--o{ automation_actions : proposes
+    ai_investigations |o--o{ automation_actions : recommends
+    automation_policies |o--o{ automation_actions : preauthorizes
+    evidence_snapshots ||--o{ automation_actions : freezes
+    automation_actions ||--o| automation_approvals : decision
+    users ||--o{ automation_approvals : decides
+    automation_actions ||--o| automation_executions : executes
+    automation_executions ||--o{ automation_attempts : attempts
+    automation_executions ||--o| automation_reservations : reserves
+    services ||--o{ automation_guards : protects
+    runbooks ||--o{ automation_guards : limits
+    services ||--o{ automation_reservations : scope
+    runbooks ||--o{ automation_reservations : counts
+    incidents ||--o| post_incident_reviews : reviews
+    post_incident_reviews ||--o{ post_incident_actions : follows
+    users ||--o{ post_incident_actions : owns
+    organizations {
         uuid id PK
         string name
     }
-    USER {
+    users {
         uuid id PK
+        uuid organization_id FK
         string email
-        string displayName
         string timezone
     }
-    SERVICE {
+    teams {
         uuid id PK
-        uuid teamId FK
+        uuid organization_id FK
         string name
+    }
+    team_members {
+        uuid team_id PK,FK
+        uuid user_id PK,FK
+    }
+    roles {
+        uuid id PK
+        string name
+    }
+    permissions {
+        string code PK
+    }
+    user_roles {
+        uuid id PK
+        uuid user_id FK
+        uuid role_id FK
+        uuid team_id FK
+    }
+    role_permissions {
+        uuid role_id PK,FK
+        string permission_code PK,FK
+    }
+    services {
+        string name
+        string environment
+        string repository_url
+        string runbook_url
+        uuid id PK
+        uuid organization_id FK
+        uuid team_id FK
+        uuid escalation_policy_id FK
         string criticality
         string status
     }
-    SERVICE_DEPENDENCY {
-        uuid id PK
-        uuid serviceId FK
-        uuid dependsOnServiceId FK
+    service_dependencies {
+        uuid service_id PK,FK
+        uuid depends_on_service_id PK,FK
     }
-    EVENT {
+    integrations {
+        string name
+        string provider
+        string status
         uuid id PK
-        uuid organizationId FK "denormalized — tenant isolation"
-        uuid integrationId FK
-        string eventType "ALERT | RESOLVE"
-        string dedupKey
+        uuid service_id FK
+        string key_hash
+        boolean auto_resolve_enabled
+    }
+    idempotency_keys {
+        timestamptz created_at
+        timestamptz completed_at
+        uuid integration_id PK,FK
+        string key PK
+        string request_hash
+        string state
+        int response_status
+        jsonb response_body
+        jsonb response_headers
+        timestamptz expires_at
+    }
+    alert_streams {
+        uuid id PK
+        uuid integration_id FK
+        uuid service_id FK
+        string dedup_key
+        string last_episode_id
+        bigint last_source_sequence
+        string last_payload_hash
+        boolean episode_closed
+    }
+    events {
+        uuid id PK
+        uuid organization_id FK
+        uuid integration_id FK
+        uuid service_id FK
+        uuid alert_id FK
+        string event_type
+        string signal_type
+        string dedup_key
+        string episode_id
+        bigint source_sequence
+        string outcome
+        jsonb payload
+        timestamptz occurred_at
+        timestamptz received_at
+    }
+    alerts {
         string severity
-        timestamp receivedAt
-    }
-    ALERT {
         uuid id PK
-        uuid organizationId FK "denormalized — tenant isolation"
-        string dedupKey
+        uuid organization_id FK
+        uuid integration_id FK
+        uuid service_id FK
+        uuid stream_id FK
+        uuid incident_id FK
+        string dedup_key
+        string episode_id
+        string status
+        bigint occurrence_count
+        timestamptz created_at
+        timestamptz resolved_at
+        string resolution_reason
+    }
+    incidents {
         string severity
-        string status "OPEN | RESOLVED"
-        timestamp createdAt
-        timestamp resolvedAt
-    }
-    INCIDENT {
+        uuid assignee_id FK
         uuid id PK
-        uuid organizationId FK "denormalized — tenant isolation"
-        string incidentNumber
-        string status "TRIGGERED | ACKNOWLEDGED | RESOLVED"
+        uuid organization_id FK
+        uuid service_id FK
+        string incident_number
+        string grouping_key
+        string status
         string priority
-        int version
-        timestamp triggeredAt
-        timestamp acknowledgedAt
-        timestamp resolvedAt
-        timestamp actualFailureAt "nullable — nhập tay ở PIR, xem §3.5"
+        bigint version
+        jsonb escalation_policy_snapshot
+        int escalation_level
+        int escalation_repeat
+        boolean escalation_exhausted
+        timestamptz escalate_at
+        timestamptz triggered_at
+        timestamptz acknowledged_at
+        timestamptz resolved_at
+        timestamptz actual_failure_at
+        timestamptz detected_at
+        jsonb detection_evidence
     }
-    INCIDENT_RESPONDER {
-        uuid id PK
-        uuid incidentId FK
-        uuid userId FK
+    incident_responders {
+        uuid incident_id PK,FK
+        uuid user_id PK,FK
         string role
     }
-    ESCALATION_RULE_TARGET {
+    incident_events {
         uuid id PK
-        uuid escalationRuleId FK
-        string targetType "USER | SCHEDULE | TEAM"
-        uuid targetId
+        uuid incident_id FK
+        bigint aggregate_version
+        string event_type
+        jsonb payload
+        timestamptz created_at
     }
-    ROLE {
+    audit_logs {
         uuid id PK
-        string name
-    }
-    PERMISSION {
-        uuid id PK
-        string code
-    }
-    AUDIT_LOG {
-        uuid id PK
-        uuid actorId FK
+        uuid organization_id FK
+        uuid incident_id FK
+        uuid actor_id FK
+        string actor_type
         string action
-        string resourceType
-        uuid resourceId
-        jsonb oldValue
-        jsonb newValue
-        timestamp createdAt
+        string resource_type
+        uuid resource_id
+        uuid correlation_id
+        jsonb old_value
+        jsonb new_value
+        timestamptz created_at
     }
-    AI_INVESTIGATION {
+    escalation_policies {
         uuid id PK
-        uuid incidentId FK
+        uuid team_id FK
+        int version
+        uuid backstop_user_id FK
+    }
+    escalation_rules {
+        uuid id PK
+        uuid policy_id FK
+        int level
+        int timeout_minutes
+        int repeat_count
+        int repeat_interval_minutes
+    }
+    escalation_rule_targets {
+        uuid id PK
+        uuid rule_id FK
+        uuid user_id FK
+        uuid schedule_id FK
+        uuid team_id FK
+    }
+    schedules {
+        uuid id PK
+        uuid team_id FK
+        string timezone
+        jsonb rotation_rule
+        string dst_policy
+    }
+    jobs {
+        uuid id PK
+        uuid incident_id FK
+        string job_key UK
+        string job_type
+        jsonb payload
+        string status
+        timestamptz available_at
+        string lease_owner
+        timestamptz lease_until
+        bigint lease_generation
+        int attempts
+        string last_error
+    }
+    outbox_events {
+        string lease_owner
+        timestamptz lease_until
+        bigint lease_generation
+        int attempts
+        timestamptz available_at
+        uuid id PK
+        uuid organization_id FK
+        string aggregate_type
+        uuid aggregate_id
+        bigint aggregate_version
+        string event_type
+        int schema_version
+        uuid correlation_id
+        jsonb payload
+        timestamptz created_at
+        timestamptz published_at
+    }
+    consumer_receipts {
+        string consumer_name PK
+        uuid event_id PK
+        timestamptz processed_at
+    }
+    notification_deliveries {
+        uuid id PK
+        uuid incident_id FK
+        uuid target_user_id FK
+        string delivery_key UK
+        string channel
+        string status
+        string provider_message_id
+        int retry_count
+        timestamptz sent_at
+    }
+    notification_inbox {
+        uuid id PK
+        uuid delivery_id FK
+        uuid user_id FK
+        bigint cursor UK
+        jsonb content
+        timestamptz created_at
+        timestamptz read_at
+    }
+    deployments {
+        uuid id PK
+        uuid service_id FK
+        string external_id
+        string version
+        string environment
+        string source
+        string evidence_uri
+        timestamptz deployed_at
+    }
+    ai_investigations {
+        uuid id PK
+        uuid incident_id FK
+        string state
+        string model_version
+        jsonb conversation
         string hypothesis
-        float confidenceScore
-        timestamp createdAt
+        float confidence_score
+        jsonb evidence_refs
+        timestamptz started_at
+        timestamptz deadline_at
+        timestamptz finished_at
+        string error
     }
-    AI_TOOL_CALL {
+    ai_tool_calls {
         uuid id PK
-        uuid aiInvestigationId FK
-        string toolName
+        uuid ai_investigation_id FK
+        string call_id
+        string tool_name
         jsonb input
         jsonb output
-        timestamp calledAt
+        jsonb evidence_refs
+        string status
+        timestamptz called_at
+        timestamptz finished_at
     }
-    RUNBOOK {
+    runbooks {
         uuid id PK
-        uuid serviceId FK
+        uuid service_id FK
         string name
-        string riskLevel
-        boolean requiresApproval
     }
-    AUTOMATION_ACTION {
+    runbook_versions {
         uuid id PK
-        uuid runbookId FK
-        uuid incidentId FK
-        string effectiveRiskLevel
+        uuid runbook_id FK
+        int version
+        string base_risk
+        boolean requires_approval
+        jsonb parameter_schema
+        jsonb target_allowlist
+        string executor_ref
     }
-    AUTOMATION_APPROVAL {
+    automation_policies {
         uuid id PK
-        uuid automationActionId FK
-        uuid approvedBy FK
-        string decision "APPROVED | REJECTED"
-        timestamp decidedAt
-        string evidenceSnapshotRef
+        uuid runbook_version_id FK
+        uuid service_id FK
+        uuid authorized_by FK
+        int version
+        jsonb allowed_scope
+        timestamptz expires_at
+        timestamptz revoked_at
     }
-    AUTOMATION_EXECUTION {
+    evidence_snapshots {
         uuid id PK
-        uuid automationActionId FK
-        string status "SUCCESS | FAILED"
-        timestamp executedAt
+        jsonb content
+        string sha256
+        timestamptz created_at
     }
-    AUTOMATION_RATE_LIMIT {
-        uuid serviceId PK
-        uuid runbookId PK
-        timestamp windowStart PK
-        int executionCount
-    }
-    POST_INCIDENT_ACTION {
+    automation_actions {
         uuid id PK
-        uuid postIncidentReviewId FK
-        string actionType "BUG_FIX | INFRASTRUCTURE | MONITORING | PROCESS | DOCUMENTATION | SECURITY"
-        uuid ownerId FK
-        date dueDate
-        string status "OPEN | DONE"
+        uuid incident_id FK
+        uuid runbook_version_id FK
+        uuid ai_investigation_id FK
+        uuid policy_id FK
+        uuid evidence_snapshot_id FK
+        jsonb parameters
+        jsonb target_snapshot
+        string snapshot_hash
+        string effective_risk
+        string state
+        bigint version
+        uuid requested_by FK
+        string request_key
+        string blocked_reason
+        timestamptz blocked_until
     }
-    NOTIFICATION_DELIVERY {
+    automation_approvals {
         uuid id PK
-        uuid incidentId FK
-        uuid targetUserId FK
-        string channel "EMAIL | SLACK | SMS | WEBSOCKET"
-        string status "SENT | FAILED | RETRYING | DLQ"
-        int retryCount
-        timestamp sentAt
+        uuid action_id FK,UK
+        uuid decided_by FK
+        string snapshot_hash
+        string decision
+        timestamptz decided_at
+    }
+    automation_executions {
+        uuid id PK
+        uuid action_id FK,UK
+        string executor_key UK
+        string status
+        jsonb outcome
+        timestamptz started_at
+        timestamptz finished_at
+    }
+    automation_attempts {
+        uuid id PK
+        uuid execution_id FK
+        int attempt_no
+        string operation
+        string outcome
+        timestamptz started_at
+        timestamptz finished_at
+    }
+    automation_guards {
+        uuid service_id PK,FK
+        uuid runbook_id PK,FK
+        string breaker_state
+        int consecutive_failures
+        timestamptz open_until
+        uuid probe_execution_id
+        bigint version
+    }
+    automation_reservations {
+        uuid execution_id PK,FK
+        uuid service_id FK
+        uuid runbook_id FK
+        timestamptz reserved_at
+    }
+    post_incident_reviews {
+        uuid id PK
+        uuid incident_id FK,UK
+        string status
+        int version
+        jsonb content
+    }
+    post_incident_actions {
+        uuid id PK
+        uuid post_incident_review_id FK
+        uuid owner_id FK
+        string action_type
+        date due_date
+        string status
     }
 ```
 
 ### 5.4 Vận hành & An toàn Dữ liệu
 
-Bốn mối quan tâm ở tầng vận hành database thực tế — không thể hiện được trên một sơ đồ ERD thuần quan hệ — nhưng là điều kiện bắt buộc để schema ở §5.3 chạy đúng và an toàn trong production.
+**Tenant boundary.** Baseline một organization, single-tenant; không tuyên bố đã có multi-tenant chỉ vì tồn tại organization_id. Khi mở rộng: thêm organization_id và composite FK/unique theo tenant trên toàn bộ dữ liệu tenant-owned; kiểm tra API, jobs, outbox, retrieval, cache, WebSocket và object authorization. Worker lấy tenant từ envelope đã xác thực và DB ownership, không tin payload khách hàng.
 
-**Cô lập dữ liệu đa tổ chức (multi-tenant isolation).** `organizationId` được denormalize trực tiếp lên `incidents`, `alerts`, `events` (thay vì chỉ suy ra qua JOIN `service → team → organization`) để enable Row-Level Security ngay tại tầng Postgres, không phụ thuộc hoàn toàn vào logic ứng dụng:
+RLS dùng application role không owner/superuser/BYPASSRLS; tenant context phải transaction-local và fail closed khi thiếu. `FORCE ROW LEVEL SECURITY` cần cho owner nhưng không loại bỏ đặc quyền superuser/BYPASSRLS. Ví dụ dưới đây chỉ minh hoạ cho incidents, không chứng minh đủ policy toàn hệ thống. Tham chiếu [PostgreSQL — Row Security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
+
 ```sql
 ALTER TABLE incidents ENABLE ROW LEVEL SECURITY;
-CREATE POLICY org_isolation ON incidents
-  USING (organization_id = current_setting('app.current_org_id')::uuid);
-```
-Mọi connection từ application server set `app.current_org_id` ngay sau khi xác thực JWT; một bug logic ở tầng application (quên filter theo tenant) vẫn bị chặn ở tầng database — phòng thủ theo chiều sâu (defense in depth), không dựa vào một lớp duy nhất.
-
-**Retention & Partitioning.** Các bảng append-only tăng trưởng không giới hạn cần chính sách rõ ràng thay vì giữ vĩnh viễn trong một bảng duy nhất:
-
-| Bảng | Khối lượng | Retention | Chiến lược |
-|---|---|---|---|
-| `events` | Cao nhất (mọi tín hiệu thô) | 90 ngày chi tiết | Partition theo tháng (`RANGE` trên `received_at`) |
-| `ai_tool_calls` | Cao | 180 ngày | Partition theo tháng |
-| `notification_deliveries` | Trung bình–cao | 180 ngày | Partition theo tháng |
-| `incident_events` (timeline) | Trung bình | Theo vòng đời incident cha | Không tách retention riêng |
-| `audit_logs` | Trung bình | **Không xoá** — compliance | Partition theo năm, không drop partition cũ |
-
-```sql
-CREATE TABLE events (
-  id UUID NOT NULL,
-  organization_id UUID NOT NULL,
-  received_at TIMESTAMPTZ NOT NULL
-  -- ... các cột khác
-) PARTITION BY RANGE (received_at);
-
-CREATE TABLE events_2026_09 PARTITION OF events
-  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
--- Partition mới được tạo tự động hàng tháng (pg_partman hoặc job định kỳ);
--- hết hạn retention thì DROP PARTITION thay vì DELETE hàng loạt (tránh bloat + khoá bảng)
+ALTER TABLE incidents FORCE ROW LEVEL SECURITY;
+CREATE POLICY incident_tenant_policy ON incidents
+  USING (organization_id = nullif(current_setting('app.current_org_id', true), '')::uuid)
+  WITH CHECK (organization_id = nullif(current_setting('app.current_org_id', true), '')::uuid);
+-- Trong BEGIN/COMMIT, bind :org_id từ identity đã xác thực:
+SELECT set_config('app.current_org_id', :org_id, true);
 ```
 
-**Bất biến của Audit Log.** §3.5 khẳng định `audit_logs` "ghi lại bất biến" — điều này phải được ép buộc ở tầng database, không chỉ là quy ước ở tầng ứng dụng:
-```sql
-REVOKE UPDATE, DELETE ON audit_logs FROM nexusops_app;
--- Application role chỉ có quyền INSERT; sửa/xoá (nếu thật sự cần, ví dụ yêu cầu pháp lý)
--- phải qua một role DBA riêng, ngoài đường ứng dụng, và tự nó cũng được ghi log.
-```
+**Retention, partition và restore.** Baseline chưa partition. Retention mặc định dự kiến: raw events 90 ngày; tool payload và delivery detail 180 ngày; idempotency tối thiểu 7 ngày; timeline/PIR/approval/evidence theo vòng đời incident và chính sách lưu trữ tổ chức. Audit không có API sửa/xoá; không hứa lưu vĩnh viễn hoặc compliance pháp lý chưa đánh giá. Evidence snapshot dùng cho approval phải được giữ cùng decision/execution, dù log nguồn hết hạn. `alert_streams` watermark/tombstone giữ lâu hơn cửa sổ replay nguồn; nếu không có giới hạn late arrival thì không tự xoá.
 
-**Chính sách xoá dữ liệu master.** `Service` không bao giờ bị hard-delete nếu đã có `Incident` tham chiếu (`ON DELETE RESTRICT` trên FK `incident.service_id`) — việc ngừng sử dụng một service được thể hiện qua `status = DISABLED` (enum đã có sẵn ở §3.2), giữ nguyên bản ghi để không phá vỡ tính toàn vẹn lịch sử của các Incident/PIR cũ đã tham chiếu tới nó.
+Partitioning chỉ đưa vào sau đo tải. Với PostgreSQL partition theo received_at, PK/unique cấp parent cần chứa partition key: không giữ PK(id) đơn như bảng chưa partition; phải thiết kế lại FK/identity tương ứng trước migration. Không partition bảng idempotency theo cách phá uniqueness integration/key. Có archive/purge job kiểm tra FK/evidence và backup restore/PITR diễn tập; không drop partition đang được evidence bắt buộc tham chiếu.
+
+**Append-only và master data.** Application role không có UPDATE/DELETE/TRUNCATE trên audit_logs, incident_events, automation_approvals và evidence_snapshots; không sở hữu bảng. Runbook/policy version đã được action tham chiếu không sửa nội dung; thu hồi qua trạng thái riêng có audit. DBA đặc quyền vẫn có thể đổi dữ liệu: cần external audit/backup để phát hiện, không tuyên bố chống sửa tuyệt đối. Service/user đã có lịch sử dùng disable/deactivate hoặc anonymization được thiết kế, FK ON DELETE RESTRICT giữ chuỗi truy vết. Secrets không được lưu trong snapshot/log; chỉ lưu secret reference.
 
 ---
 
@@ -1349,20 +1560,20 @@ REVOKE UPDATE, DELETE ON audit_logs FROM nexusops_app;
 - **Hai bề mặt API riêng biệt.** Một **Events API** machine-generated (`POST /api/v1/events`) tối ưu cho throughput ingestion cao, xác thực bằng API key theo integration, tách biệt khỏi **Management API** hướng resource dùng cho cấu hình và thao tác do con người thực hiện, xác thực bằng **JWT** (cặp access + refresh token).
 - **Versioning.** Toàn bộ endpoint nằm dưới namespace `/api/v1/`; breaking change yêu cầu thêm version segment mới thay vì sửa trực tiếp một contract đang tồn tại. Version cũ được giữ tối thiểu 6 tháng sau khi version mới phát hành, kèm header `Sunset` báo ngày ngừng hỗ trợ.
 - **Đặt tên hướng resource.** Endpoint dùng danh từ số nhiều và các HTTP verb chuẩn (`GET`, `POST`, `PATCH`, `DELETE`); các hành động thay đổi trạng thái không thuần CRUD được biểu diễn dưới dạng sub-resource hoặc verb (`POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/escalate`).
-- **Idempotency-Key và dedupKey — hai lớp bảo vệ khác nhau, không thay thế nhau.** `Idempotency-Key` (HTTP header, bắt buộc trên mọi `POST /api/v1/events`) chống trùng lặp do **retry mạng** ở tầng vận chuyển — cùng key trả về đúng response đã lưu (xem `idempotency_keys`, §2.6). `dedupKey` (trường ở tầng domain, bắt buộc trong body) chống trùng lặp **nghiệp vụ** theo thời gian — nhiều request khác nhau, hợp lệ, nhưng cùng phản ánh một sự cố đang mở thì gộp thành một alert (xem `uniq_open_dedup`, §2.6). Một request thiếu `dedupKey` vẫn được `Idempotency-Key` bảo vệ khỏi trùng do retry, nhưng **không** được bảo vệ khỏi tạo alert trùng về mặt nghiệp vụ — do đó `dedupKey` là bắt buộc, không phải lựa chọn thay thế cho `Idempotency-Key`.
-- **Authorization theo permission code.** Mỗi endpoint của Management API được gắn với một hoặc nhiều permission code cụ thể (`INCIDENT_ACK`, `ESCALATION_MANAGE`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) kiểm tra qua middleware trước khi vào business logic, resolve từ `USER → USER_ROLE → ROLE → ROLE_PERMISSION → PERMISSION` (xem ERD §5.3). Thiếu permission trả về `403` kèm `code: PERMISSION_DENIED`, không phải `401` (vốn dành riêng cho thiếu/hết hạn xác thực).
+- **Idempotency-Key và dedupKey — hai lớp bảo vệ khác nhau, không thay thế nhau.** `Idempotency-Key` (HTTP header, bắt buộc trên mọi `POST /api/v1/events`) chống trùng lặp do **retry mạng** ở tầng vận chuyển — cùng key trả về đúng response đã lưu (xem `idempotency_keys`, §2.6). `dedupKey` (trường ở tầng domain, bắt buộc trong body) chống trùng lặp **nghiệp vụ** theo thời gian — nhiều request khác nhau, hợp lệ, nhưng cùng phản ánh một sự cố đang mở thì gộp thành một alert (xem `uniq_open_dedup`, §2.6). Request thiếu một trong hai bị từ chối 400 trước claim; namespace/hash/retention/replay theo §2.6.
+- **Authorization theo permission code.** Mỗi endpoint của Management API được gắn với một hoặc nhiều permission code cụ thể (`INCIDENT_ACK`, `ESCALATION_MANAGE`, `AUTOMATION_EXECUTE`, `AUDIT_VIEW`,...) kiểm tra qua middleware trước khi vào business logic, resolve từ `users → user_roles → roles → role_permissions → permissions` (xem ERD §5.3). Luôn kiểm tra object scope; approval còn yêu cầu assigned responder/Commander (§3.4). Thiếu permission trả về `403` kèm `code: PERMISSION_DENIED`, không phải `401` (vốn dành riêng cho thiếu/hết hạn xác thực).
 - **Định dạng lỗi nhất quán.** Lỗi trả về dưới dạng body có cấu trúc (`code`, `message`, `details`) thay vì một chuỗi text thuần, để cả UI và các integration đều có thể xử lý rẽ nhánh theo `code` (ví dụ minh hoạ ở §6.3).
 - **Quy ước HTTP status code.** `200` cho GET/action thành công; `201` cho tạo mới resource; `202` cho request được nhận nhưng xử lý bất đồng bộ (ví dụ AI investigation); `204` cho action thành công không có response body; `4xx` cho lỗi phía client (`400` sai định dạng, `401` chưa xác thực, `403` thiếu quyền, `404` không tồn tại, `409` xung đột — ví dụ `Idempotency-Key` trùng nhưng request body khác hash, `429` vượt rate limit); `5xx` cho lỗi phía server.
-- **Pagination.** Các endpoint dạng list chấp nhận tham số `page`/`size` (hoặc cursor-based `after`) và trả về một envelope nhất quán kèm tổng số bản ghi và cursor cho trang tiếp theo.
-- **Rate limiting.** Áp dụng theo từng integration key tại biên Events API; hạn mức và phần còn lại được trả về qua header `X-RateLimit-*`.
+- **Pagination.** Các endpoint dạng list chấp nhận tham số `page`/`size` (hoặc cursor-based `after`) và trả về một envelope nhất quán với page metadata khi dùng offset hoặc nextCursor khi dùng cursor; cursor API không bắt buộc đếm tổng số bản ghi.
+- **Rate limiting.** Áp dụng theo từng integration key tại biên Events API; hạn mức và phần còn lại được trả về qua header `X-RateLimit-*`, 429 có Retry-After. Token bucket cần phép toán nguyên tử, không đồng nhất với INCR đơn lẻ.
 
 ### 6.2 Tổng quan Resource API
 
-> **Sửa sau audit:** bảng dưới đây trước đây chỉ phủ khoảng 23/31 use case ở Mục 4. Bổ sung các domain còn thiếu: RBAC (UC-02), Service Dependency (UC-05), Maintenance Window (UC-29), SLO (UC-28), Post-Incident Review (UC-26), Analytics (UC-27), Status Page (UC-31), Audit Log (UC-30).
+Các path viết gọn trong bảng đều thêm `/api/v1`; Events API đã viết đầy đủ. Endpoint roadmap chỉ được công bố khi capability đã triển khai.
 
 | Domain | Endpoint chính | Use Case |
 |---|---|---|
-| Auth | `POST /auth/login`, `POST /auth/refresh`, `GET /users/me` | UC-01 |
+| Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /users/me` | UC-01 |
 | RBAC | `GET /roles`, `POST /users/{id}/roles`, `GET /permissions` | UC-02 |
 | Organizations & Teams | `POST /organizations`, `POST /teams`, `POST /teams/{id}/members` | UC-03 |
 | Services | `POST /services`, `GET /services`, `GET /services/{id}`, `PATCH /services/{id}` | UC-04 |
@@ -1371,12 +1582,12 @@ REVOKE UPDATE, DELETE ON audit_logs FROM nexusops_app;
 | Events (ingestion) | `POST /api/v1/events` | UC-07 |
 | Orchestration Rules | `POST /orchestration-rules`, `GET /orchestration-rules` | UC-08 |
 | Alerts | `GET /alerts`, `GET /alerts/{id}`, `POST /alerts/{id}/resolve` | UC-09 |
-| Incidents | `POST /incidents`, `GET /incidents/{id}`, `POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/resolve`, `POST /incidents/{id}/escalate`, `POST /incidents/{id}/responders`, `POST /incidents/{id}/notes`, `POST /incidents/{id}/status-updates` | UC-10, 11, 12, 17, 18, 19 |
+| Incidents | `GET /incidents`, `GET /incidents/{id}`, `POST /incidents/{id}/acknowledge`, `POST /incidents/{id}/resolve`, `POST /incidents/{id}/escalate`, `POST /incidents/{id}/responders`, `POST /incidents/{id}/notes`, `POST /incidents/{id}/status-updates` | UC-10, 11, 12, 17, 18, 19 |
 | Schedules | `POST /schedules`, `GET /schedules/{id}/on-call`, `POST /schedules/{id}/overrides` | UC-13, 14 |
 | Escalation Policies | `POST /escalation-policies`, `GET /escalation-policies` | UC-15 |
 | Notifications | `GET /notifications`, `PATCH /notification-rules/{id}` | UC-16 |
 | AI | `POST /ai/incidents/{id}/triage`, `POST /ai/incidents/{id}/investigate`, `POST /ai/incidents/{id}/summarize`, `GET /knowledge/search` | UC-22, 23, 24, 25 |
-| Automation | `GET /runbooks`, `POST /runbooks/{id}/execute`, `POST /automation/{id}/approve` | UC-20, 21 |
+| Automation | `GET /runbooks`, `POST /runbooks/{id}/execute`, `POST /automation/{id}/approve`, `POST /automation/{id}/reject`, `GET /automation/{id}` | UC-20, 21 |
 | Post-Incident Review | `GET /incidents/{id}/pir`, `PATCH /pir/{id}`, `POST /pir/{id}/approve` | UC-26 |
 | Analytics | `GET /analytics/metrics` (MTTA/MTTR/MTTD), `GET /analytics/alert-funnel` | UC-27 |
 | SLO | `POST /services/{id}/slo`, `GET /services/{id}/slo/burn-rate` | UC-28 |
@@ -1384,46 +1595,74 @@ REVOKE UPDATE, DELETE ON audit_logs FROM nexusops_app;
 | Audit Log | `GET /audit-logs` | UC-30 |
 | Status Page | `GET /status-page`, `PATCH /status-page` | UC-31 |
 
-**Kênh realtime (ngoài REST).** UC-17 (Incident War Room) dùng WebSocket, không phải REST: `wss://api.nexusops.io/v1/incidents/{id}/live`, xác thực bằng access token JWT hiện có (truyền qua subprotocol header, không truyền qua query string để tránh lộ token trong access log). Kênh này chỉ dùng để đẩy realtime (timeline, chat, trạng thái AI đang investigate); mọi hành động ghi dữ liệu (thêm note, đổi trạng thái) vẫn đi qua REST endpoint tương ứng ở trên, WebSocket không nhận ghi trực tiếp.
+**Kênh realtime (ngoài REST).** WebSocket/SSE chỉ push sau khi message/inbox/timeline đã lưu bền. Handshake xác thực và kiểm tra quyền incident, revalidate khi membership/token thay đổi; không log credential hoặc truyền token dài hạn trong URL. Browser dùng cookie session an toàn hoặc short-lived WebSocket ticket qua API có auth. Mọi mutation qua REST; reconnect dùng cursor inbox/timeline để catch-up, xử lý eventId trùng. Không hứa online delivery chỉ từ việc socket mở.
+
+**Concurrency API.** ACK/resolve/escalate/approve nhận expectedVersion và trả 409 khi stale; retry phải đọc state mới. Runbook execute là yêu cầu tạo action bất đồng bộ (202), nhận Idempotency-Key ánh xạ request_key trong scope incident; cùng key khác snapshot hash trả 409, cùng key/hash replay actionId. Không dùng POST create-incident từ client để đi vòng pipeline; manual incident creation nếu bổ sung phải có contract riêng.
 
 ### 6.3 Event Ingestion Contract
 
-```json
+`eventType` thống nhất `TRIGGER | RESOLVE`; loại tín hiệu nằm ở `signalType`. Integration key xác định organization/service; trường service trong payload chỉ để đối chiếu và phải khớp. `timestamp` là thời gian nguồn, `received_at` do server cấp. `episodeId` giữ nguyên trong một episode; `sourceSequence` tăng đơn điệu theo stream dedup qua các episode. Thiếu episode/sequence trả 400. Adapter không đáp ứng contract ordering chưa được bật ingestion contract này; chế độ TRIGGER-only/manual resolve là mở rộng phải có đặc tả riêng. `auto_resolve_enabled=false` có thể dùng để chặn recovery tự động ngay cả khi adapter có đủ metadata, không cho phép bỏ validation. RESOLVE khi cờ này false trả 409 AUTO_RESOLVE_DISABLED.
+
+```http
 POST /api/v1/events
 Authorization: Bearer <integration-key>
-Idempotency-Key: payment-cpu-high-2026-09-16T10:00:00Z
+Content-Type: application/json
+Idempotency-Key: payment-db-episode-42-trigger-101
 
 {
   "source": "prometheus",
   "service": "payment-service",
-  "eventType": "CPU_HIGH",
+  "eventType": "TRIGGER",
+  "signalType": "DB_CONNECTION_FAILURE",
   "severity": "critical",
-  "summary": "CPU > 95%",
-  "timestamp": "2026-09-16T10:00:00Z",
-  "dedupKey": "payment-cpu-high"
+  "summary": "DB connection failures above threshold",
+  "timestamp": "2026-09-24T03:00:00Z",
+  "dedupKey": "payment-db-connection",
+  "episodeId": "payment-db-episode-42",
+  "sourceSequence": 101
 }
 ```
 
-Auto-resolve (khớp `dedupKey` của alert đang mở, xem §3.3) dùng cùng endpoint với `eventType: "RESOLVE"`:
+Recovery dùng **key mới**, cùng episode; retry một request phải giữ nguyên key và body:
 
-```json
+```http
+POST /api/v1/events
+Authorization: Bearer <integration-key>
+Content-Type: application/json
+Idempotency-Key: payment-db-episode-42-resolve-102
+
 {
   "source": "prometheus",
   "service": "payment-service",
   "eventType": "RESOLVE",
-  "timestamp": "2026-09-16T10:12:00Z",
-  "dedupKey": "payment-cpu-high"
+  "timestamp": "2026-09-24T03:12:00Z",
+  "dedupKey": "payment-db-connection",
+  "episodeId": "payment-db-episode-42",
+  "sourceSequence": 102
 }
 ```
 
-Ví dụ response lỗi, đúng định dạng nhất quán đã nêu ở §6.1 (`code`/`message`/`details`):
+Accepted response 200 lưu và replay nguyên status/body:
 
 ```json
+{
+  "eventId": "3cab919e-f57a-40ad-a1b9-a26b34302650",
+  "outcome": "INCIDENT_CREATED",
+  "alertId": "930d74f2-9602-44e7-b744-8a0cd577ad8c",
+  "incidentId": "14ea0bc8-c683-47ca-9bfa-18d0e948086d"
+}
+```
+
+Outcome gồm `INCIDENT_CREATED`, `ALERT_CREATED`, `DEDUPLICATED`, `GROUPED`, `SUPPRESSED`, `STALE_IGNORED`, `RECOVERY_UNMATCHED`, `ALERT_RESOLVED`, `INCIDENT_RESOLVED`; alertId/incidentId nullable theo kết quả. `SOURCE_SEQUENCE_CONFLICT`/`EPISODE_CONFLICT` trả 409 và không mutate domain. Hash conflict:
+
+```http
 HTTP/1.1 409 Conflict
+Content-Type: application/json
+
 {
   "code": "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY",
-  "message": "Idempotency-Key đã được dùng với một request body khác",
-  "details": { "idempotencyKey": "payment-cpu-high-2026-09-16T10:00:00Z" }
+  "message": "Key đã được dùng với nội dung khác trong integration này",
+  "details": { "idempotencyKey": "payment-db-episode-42-trigger-101" }
 }
 ```
 
@@ -1431,140 +1670,172 @@ HTTP/1.1 409 Conflict
 
 ## 7. Kịch bản Tham chiếu — Vòng đời một Sự cố P1
 
-Kịch bản dưới đây theo dõi một **incident P1 (payment-service database outage)** từ đầu đến cuối, và là luồng tham chiếu nên dùng để kiểm chứng rằng ingestion, orchestration, escalation, AI investigation, và automation có human-gate được nối với nhau đúng đắn.
+Kịch bản payment-service trong sandbox minh hoạ pipeline; không xây phần mềm ngân hàng và không coi giả thuyết deploy lỗi là root cause đã chứng minh. Fixture có deployment record, logs/alert context, tài liệu RAG và một executor rollback sandbox. Nếu chỉ đổi field giả lập phải ghi rõ **simulator**, không gọi đó là rollback production.
 
 ```mermaid
 sequenceDiagram
-    participant PROM as Prometheus
-    participant ING as Event Ingestion
-    participant ORC as Orchestration Engine
-    participant DEDUP as Dedup / Grouping
-    participant INC as Incident Service
-    participant ESC as Escalation Worker
-    participant NOTIFY as Notification Worker
-    participant AI as AI Agent (Triage/Investigation)
-    participant RESP as On-call Responder
-    participant AUTO as Automation Worker
-
-    PROM->>ING: POST /api/v1/events (DB connection failures > threshold)
-    ING->>ORC: Publish EventReceived
-    ORC->>ORC: Evaluate rules (service=payment, severity=critical) -> P1
-    ORC->>DEDUP: Route event (dedupKey=payment-db-connection)
-    DEDUP->>INC: Create Alert + Incident INC-1001
-    par Escalation (independent timeout clock)
-        INC->>ESC: Publish IncidentCreated
-        ESC->>NOTIFY: Notify Payment Primary (Level 1)
-        NOTIFY->>RESP: Email / WebSocket / Slack alert
-    and AI Investigation (runs concurrently)
-        INC->>AI: Publish IncidentCreated
-        AI->>AI: Triage - check duplicates, related alerts, recent deploys
-        AI->>AI: Investigate - correlate DB failures + deploy v1.42 + past INC-884
-        AI->>INC: Post recommendation (Rollback v1.42, Risk = HIGH)
+    autonumber
+    participant M as Monitoring Adapter
+    participant API as NexusOps API
+    participant DB as PostgreSQL
+    participant N as Notification / Escalation Worker
+    participant AI as Investigation Agent
+    participant R as Assigned Responder
+    participant W as Automation Worker
+    participant EX as Sandbox Executor
+    M->>API: TRIGGER payment-db, episode 42, sequence 101, request key K1
+    API->>DB: Claim K1, create event/alert/incident P1, deadline, audit/jobs, commit
+    API-->>M: 200 INCIDENT_CREATED
+    par Paging độc lập
+        N->>DB: Claim paging job, inbox lưu bền
+        N-->>R: Inbox push và email nếu đã cấu hình
+        R->>API: ACK expectedVersion
+        API->>DB: ACK, clear deadline, timeline/audit, commit
+    and AI read-only
+        AI->>DB: Investigation RUNNING, tool calls, deployment/RAG evidence
+        AI->>DB: Hypothesis, evidence, action rollback HIGH, PENDING_APPROVAL
     end
-    INC->>RESP: Request Human Approval for remediation
-    RESP->>INC: Approve
-    INC->>AUTO: AutomationApproved
-    AUTO->>AUTO: Execute rollback (payment-service v1.42 -> v1.41)
-    AUTO->>INC: AutomationExecuted
-    PROM->>ING: Recovery signal (connections normal)
-    INC->>INC: Status -> RESOLVED
-    INC->>AI: Request Postmortem
-    AI->>INC: Generate Post-Incident Review draft
+    API-->>R: Snapshot runbook version, target, parameters, evidence
+    R->>API: Approve đúng snapshot hash/version
+    API->>DB: Decision, APPROVED, execution request job, commit
+    W->>DB: Revalidate, atomic rate slot/breaker, execution unique, EXECUTING
+    W->>EX: Rollback sandbox với executionId
+    EX-->>W: Outcome và health-check evidence
+    W->>DB: SUCCEEDED hoặc FAILED/UNKNOWN, timeline/audit
+    M->>API: RESOLVE cùng episode, sequence 102, request key K2
+    API->>DB: Resolve đúng alert, kiểm tra tất cả alert trong incident
+    alt Không còn alert OPEN
+        API->>DB: RESOLVED, cancel timer, PIR job, commit
+        AI->>DB: PIR DRAFT có evidence
+        R->>API: Review và approve PIR
+    else Còn alert OPEN khác
+        API->>DB: Giữ incident mở, lưu recovery alert và commit
+    end
 ```
 
-Nếu responder acknowledge trước khi Level 1 escalation timeout, nhánh escalation tự dừng lại — nó không hề phụ thuộc vào việc nhánh AI đã hoàn tất hay chưa, và nhánh AI cũng không phụ thuộc vào việc escalation đã hoàn tất. Hai nhánh chỉ hội tụ tại **Human Approval Gate**, nơi responder đang acknowledge sẽ phê duyệt hành động remediation do AI đề xuất.
+ACK và approval là hai hành động riêng; escalation không chờ AI. Nếu responder chưa ACK, timer vẫn chạy dù action đang chờ duyệt. Recovery phải đến từ monitoring sandbox/health check thực nếu demo muốn chứng minh rollback giúp khôi phục; gửi RESOLVE thủ công chỉ kiểm tra recovery pipeline.
+
+**Bộ ca nghiệm thu bắt buộc** (đặc tả test cần triển khai/chạy; không tuyên bố đã pass runtime):
+
+| Nhóm | Ca kiểm chứng | Điều kiện đạt |
+|---|---|---|
+| Idempotency | 20 request đồng thời cùng key/body; khác body; hai integration cùng key; crash trước/sau commit | Một domain effect, replay đúng, 409 đúng, không lẫn scope; response sau commit không mất nghĩa vụ |
+| Dedup | 20 key khác, cùng namespace/episode, sequence hợp lệ | Một OPEN alert, count bằng số occurrence được chấp nhận; sequence đến muộn theo contract là stale, không cộng count |
+| Dedup concurrency | Barrier test nhiều worker xử lý cùng episode với sequence tăng theo thứ tự commit được kiểm soát | Counter không lost update, một incident; kiểm thử riêng out-of-order để xác nhận stale policy |
+| Resolve/grouping | Hai alert một incident, resolve một alert; grouping cạnh tranh manual resolve | Incident còn mở nếu alert khác OPEN; không OPEN alert gắn incident đã đóng |
+| Episode | RESOLVE cũ tới sau TRIGGER episode mới; recovery unmatched | Không đóng episode mới, không tạo incident từ unmatched recovery |
+| Escalation | ACK/timeout cùng lúc, restart/mất Redis, policy hai level | Theo commit order, deadline bền, không level 3, backstop chỉ một lần |
+| Delivery | Crash trước/sau send/commit; disconnect/reconnect | Job/inbox không mất, retry hữu hạn, duplicate risk provider được nhận diện; SENT không tự ACK |
+| Approval | LOW requiresApproval; không policy; người ngoài scope; double approve; sửa parameters | Không bypass gate, 403/409 đúng, decision đúng snapshot, execution unique |
+| Executor | Timeout sau external success, lease hết hạn | UNKNOWN và reconcile cùng executionId, không tác động lặp mù |
+| Rate guard | Ba action đồng thời; sát ranh giới 15 phút; approval chờ lâu | Chỉ hai reservation/window, action thứ ba blocked kể cả đã duyệt; kiểm tra lại trước dispatch |
+| Breaker | Ba execution lỗi liên tiếp theo thời gian, cooldown và probe | OPEN được lưu bền, một HALF_OPEN probe, success reset, fail reopen |
+| AI | Có/không evidence, tool lỗi, prompt injection trong log, lỗi không do deploy | Evidence refs đúng, nêu thiếu dữ kiện, không nâng quyền, paging không bị chặn; đo latency/budget |
+| Audit | Truy từ incident tới tool/approval/execution | Actor, snapshot, timeline, outcome và correlation truy được; SYSTEM actor không cần user giả |
+| Metrics | ACK chưa resolve; auto-resolve chưa ACK; ngoài kỳ | Đúng cohort, mẫu số, first timestamp, không coi null bằng 0 |
+
+Demo tách ba trường hợp: cùng request key/body là HTTP replay; key khác + cùng dedup/episode/sequence mới là occurrence; dedup khác áp dụng grouping rule. Demo quota dùng LOW + pre-authorization hợp lệ trên service NORMAL, guard sạch và các action khác nhau; lần thứ ba **blocked**, không nâng HIGH. Demo HIGH approval là ca độc lập. Báo cáo số mẫu, dữ liệu fixture và outcome thực; không dùng score 0.82 làm xác suất đúng đã hiệu chuẩn.
 
 ---
 
 ## 8. Lộ trình Triển khai theo Giai đoạn (Phased Implementation Plan)
 
-Nền tảng chủ động **không** được xây dựng thành 15 microservice ngay từ đầu. Nó được triển khai như một modular monolith, "kiếm" được các tầng event-driven và AI theo từng giai đoạn.
+Giữ modular-monolith-first và roadmap 15 bounded module, không triển khai 15 microservice. README là đặc tả định hướng, không phải bằng chứng ứng dụng đã chạy. Các phase giữ thứ tự trình bày; baseline có AI có thể lấy lát cắt 4a/4b tối thiểu trước các hạng mục mở rộng Phase 3 như Kafka/Redis, miễn có đủ correctness prerequisites từ Phase 1–2. Chưa cam kết số tuần khi thiếu nhân lực/deadline và đo thử tích hợp.
 
 ### 8.1 Phase 1 — Foundation
 
-**Mục tiêu:** thiết lập chuỗi tối thiểu `event → alert → incident` chạy được đầu-cuối.
+**Mục tiêu:** một luồng dọc event → alert → incident lưu bền.
 
 | Hạng mục | Ghi chú |
 |---|---|
-| Auth & RBAC | JWT-based auth, phân cấp role |
-| Organization & Team | Cấu trúc sở hữu |
-| Service Directory | Bản ghi service cơ bản |
-| Incident & Alert core | CRUD + lifecycle, chưa có async processing |
+| Auth, RBAC, object authorization | JWT; một organization/team; role seed, kiểm tra scope từ đầu |
+| Service/Integration | Service criticality tách status, integration key theo service |
+| Database/migrations | Domain FKs, idempotency claim, stream watermark, timeline/audit, jobs/outbox schema |
+| Incident/Alert core | Lifecycle, grouping/resolve invariant; không network I/O trong transaction |
+| Kiểm chứng lát cắt | Crash tại commit boundary, request concurrency; chưa cần Kafka/Redis |
 
 ### 8.2 Phase 2 — PagerDuty Core
 
-**Mục tiêu:** đạt được sự tương đương chức năng với một sản phẩm incident management cơ bản.
+**Mục tiêu:** baseline vận hành nhỏ có paging bền, không hứa tương đương toàn bộ sản phẩm PagerDuty.
 
 | Hạng mục | Ghi chú |
 |---|---|
-| Integration & Event Ingestion | Events API, integration key, `idempotency_keys` (unique constraint ở DB — xem §2.6) |
-| Dedup, Grouping, Routing | Rule engine v1; dedup theo `uniq_open_dedup` (chỉ alert đang mở — xem §2.6) |
-| On-call Scheduling | Rotation, override |
-| Escalation & Notification | Policy nhiều level (đa target/level, re-notify); **timeout scheduling dùng DB polling** (`SELECT ... FOR UPDATE SKIP LOCKED` + `@Scheduled`), chưa cần Kafka/Redis — xem §3.3 |
-
-> **Audit fix (N4):** bản trước đây yêu cầu Phase 2 có escalation hoạt động nhưng cơ chế mô tả ở §3.3 (Kafka + Redis) chỉ có từ Phase 3 — tự mâu thuẫn. Phase 2 nay dùng DB polling làm cơ chế escalation timeout tạm thời, đủ dùng ở quy mô nhỏ/vừa; Phase 3 nâng cấp sang Kafka + Redis khi cần scale (không đổi hành vi nghiệp vụ, chỉ đổi cơ chế thực thi bên dưới).
+| Ingestion | Canonical request hash, replay retention, episode adapter |
+| Dedup, grouping, routing | Rule tất định tối thiểu, mutation lock, counters nguyên tử |
+| On-call | Tĩnh, hai level và backstop; rotation/DST/override đầy đủ thuộc roadmap |
+| Escalation | DB polling/claim, repeat/next deadline/exhausted, ACK race tests |
+| Notification | Inbox lưu bền + catch-up; WebSocket là push; email adapter khi sẵn sàng |
+| Retry/DLQ | DB jobs có lease, attempts, backoff và công cụ xem/replay có quyền |
+| Tiêu chí kết thúc | Passing evidence của các ca ingestion/resolve/escalation/delivery ở §7 |
 
 ### 8.3 Phase 3 — Advanced Reliability
 
-**Mục tiêu:** đưa vào xương sống distributed-systems và chiều sâu vận hành.
+**Mục tiêu:** mở rộng khi workload và vận hành yêu cầu; không thay semantics đã chốt.
 
 | Hạng mục | Ghi chú |
 |---|---|
-| Kafka event bus | Thay thế DB polling cho escalation scheduling; partition theo `incidentId`/`serviceId` (xem §2.4) |
-| Tách process API ↔ Worker | Escalation/Notification/AI/Automation Worker chạy process riêng, tách khỏi REST API (xem §2.1) |
-| Redis reliability patterns | Fencing token cho distributed lock, rate limiting (Redis chỉ là fast-path cache — DB vẫn là nguồn chân lý) |
-| Retry / DLQ | Tăng độ tin cậy cho notification delivery |
-| Automation Circuit Breaker | `automation_rate_limits`, ép về Human Approval khi lặp lại (xem §2.6) |
-| Maintenance windows, Runbooks | Suppression + các automation action đầu tiên |
-| Incident collaboration | War room, status update |
-| **Load & chaos testing (baseline)** | Kiểm chứng sớm idempotency/dedup/rate-limiting dưới tải burst — không đợi tới Phase 5 |
+| Kafka | Relay outbox + consumer receipts; lifecycle topic/partition/version; không thay durable timer |
+| Redis | Cache/rate limiter/wake-up/lock tối ưu; DB fallback/rebuild |
+| API và worker runtime | Resource pool/DB connections giới hạn riêng; shared schema phải tương thích phiên bản |
+| Scheduling/notification mở rộng | Rotation, IANA/DST, override; multi-target/re-notify/đa kênh |
+| Runbook safety | Snapshot, approval, pre-authorization, executor idempotency/reconcile, rate reservation và breaker **trước action đầu tiên** |
+| Collaboration | Notes/timeline/status update, War Room realtime; cấu hình ít đổi có thể seed |
+| Load/chaos | Mất Redis, relay crash, consumer retry/gap, worker lease mất |
 
 ### 8.4 Phase 4 — AI Operations
 
-**Mục tiêu:** đưa ra điểm khác biệt cốt lõi của nền tảng, chia hai giai đoạn con để tách rủi ro "hạ tầng AI" khỏi rủi ro "AI được phép ghi/thực thi".
+**Phase 4a — AI Read-Only:** một Investigation Agent, PGVector RAG, alert/deployment context. Pin SDK/model/embedding versions; tạo investigation trước log; đúng tool history, permission filter, evidence refs, deadline/budget. Deployment adapter và LLM/embedding environment là dependency cần chuẩn bị. Logs/metrics/dependency tool chỉ được quảng bá khi adapter có thật.
 
-**Phase 4a — AI Read-Only** (rủi ro thấp, không cần Human Approval Gate):
+**Phase 4b — AI Recommendation + Controlled Automation + Governance:** một runbook sandbox, action snapshot/approval/executor safety theo §3.4 và §2.6; PIR draft do người review. AI không có credential thực thi. Guard không thể bị bỏ qua vì chưa dùng Kafka/Redis. Đánh giá bằng fixture có lỗi sau deploy lẫn lỗi không liên quan deploy, có/thiếu evidence và tool lỗi; đo evidence validity, retrieval, abstention, latency và chi phí.
 
-| Hạng mục | Ghi chú |
-|---|---|
-| Knowledge base & RAG | Retrieval dựa trên PGVector |
-| Triage & Investigation Agents | Tool-calling trên dữ liệu platform (chỉ đọc); `ai_investigations`, `ai_tool_calls` |
-| Knowledge Agent, On-call Assistant | Trả lời câu hỏi, không thay đổi trạng thái hệ thống |
-
-**Phase 4b — AI Write-Capable + Governance** (chỉ bắt đầu sau khi 4a đã ổn định về chất lượng câu trả lời):
-
-| Hạng mục | Ghi chú |
-|---|---|
-| Remediation Agent | Đề xuất hành động kèm `riskLevel` |
-| Human Approval Gate | `automation_approvals`, `effectiveRiskLevel` động (xem §3.4) |
-| Postmortem / Scribe Agent | Tự động soạn thảo PIR |
+Triage, Remediation, Knowledge và On-call Assistant riêng là roadmap; không cần sáu agent để đạt baseline. UI ưu tiên khoảng 4–6 màn phục vụ pipeline thay vì đặt số màn CRUD như tiêu chí thành công. Simulator/demo app phải được ghi rõ và có evidence về tác động thực nếu muốn chứng minh remediation.
 
 ### 8.5 Phase 5 — Production Engineering
 
-**Mục tiêu:** đảm bảo nền tảng vận hành được và đáng tin cậy ở chính bản thân nó.
-
-| Hạng mục | Ghi chú |
+| Hạng mục | Điều kiện nghiệm thu |
 |---|---|
-| CI/CD, Docker, AWS deployment | |
-| Observability (self-observability) | Prometheus, Grafana, OpenTelemetry — NexusOps **tự giám sát chính nó** (dogfooding chuẩn SRE); đây không phải sản phẩm observability bán cho khách hàng, không mâu thuẫn với ranh giới scope ở §1.4 |
-| Security hardening | Rate limiting, phủ audit log đầy đủ |
-| Load & chaos testing (mở rộng) | Mở rộng bộ test đã có từ Phase 3 lên quy mô production-like |
+| CI/CD, container, deployment | Build repeatable, config/secrets, migration expand/contract |
+| Self-observability | Metrics/logs/traces cho lag, backlog, DLQ, deadlines trễ, UNKNOWN actions; cảnh báo ngoài NexusOps cho chính NexusOps |
+| Security | Least privilege, secret redaction, object authorization, audit coverage |
+| Backup/restore | Diễn tập restore/PITR, định nghĩa và đo RPO/RTO |
+| Multi-tenant khi cần | RLS toàn bộ tenant data, transaction-local context, connection pool/worker/retrieval/socket isolation tests |
+| Load/chaos mở rộng | Đo ingestion latency, dispatch latency, recovery time; không tự nhận production-ready từ tài liệu |
 
 ### 8.6 Ma trận Ưu tiên
 
-| Tính năng | Ưu tiên |
+| Tính năng | Ưu tiên baseline |
 |---|---|
-| Auth / JWT, RBAC, Organization/Team | Must |
-| Service Directory, Event Ingestion, Alerting, Dedup | Must |
-| Incident, On-call, Escalation, Notification | Must |
-| Kafka, Redis, Rule Engine, Runbooks | Should |
-| Idempotency store (DB), Audit Log, RBAC entities | Must — điều kiện tiên quyết cho compliance/audit, không được lùi lại |
-| RAG, AI Investigation | Must (đối với bản phát hành có AI) |
-| AI Triage, AI Postmortem, Automation | Should |
-| Automation Circuit Breaker (rate limit + dynamic risk) | Must — bắt buộc trước khi Automation Worker được phép thực thi bất kỳ action nào |
-| Status Page, SLO | Nice to have |
-| Mobile app, Multi-region HA | Ngoài phạm vi |
+| Auth, RBAC/object scope, một org/team, service/integration | Must |
+| Idempotency, dedup/episode, grouping/resolve, domain constraints | Must |
+| Incident, on-call tĩnh, escalation, inbox/jobs, timeline/audit | Must |
+| RAG + một AI investigation có evidence | Must cho bản có AI |
+| Một runbook sandbox + approval + rate guard/breaker + reconcile | Must cho bản có remediation |
+| PIR draft và human review | Must cho vòng đời demo đầy đủ |
+| Kafka/Redis, rotation/đa kênh, rule builder, agent chuyên biệt | Should — roadmap theo nhu cầu |
+| SLO/Status Page đầy đủ | Nice to have; chưa có SLI không tuyên bố đo reliability đầy đủ |
+| Mobile native, multi-region HA | Ngoài phạm vi |
+
+**Kết quả chọn lọc Audit F01–F12:**
+
+| Finding | Quyết định và vị trí tích hợp |
+|---|---|
+| F01 | Áp dụng claim trước domain, namespace/hash/replay; §2.6, UC-07, §4.7.5, §5–6 |
+| F02 | Áp dụng deadline/repeat/level cuối/backstop; §2.6, UC-12, §4.7.2–3, incidents schema |
+| F03 | Áp dụng atomic job/outbox, inbox/consumer idempotency, giới hạn ordering; §2.2–2.6, UC-10/16 |
+| F04 | Áp dụng liên kết event-alert-incident, counters, timeline, deployment, investigation/action và audit; §5 |
+| F05 | Áp dụng serialize/retry conflict/counter nguyên tử và cache compare-delete; §2.6, UC-09 |
+| F06 | Áp dụng all-alert recovery, manual close policy và episode ordering; §2.6, UC-19, §6.3 |
+| F07 | Áp dụng snapshot, object permission, execution identity/UNKNOWN; §3.4, UC-20/21, §4.7.1/8, §5 |
+| F08 | Áp dụng với điều chỉnh: hard stop sliding reservation và breaker riêng; bỏ phương án nâng HIGH rồi cho override vì khó giữ hạn mức nhất quán |
+| F09 | Áp dụng hợp đồng history/tool IDs, investigation trước log, timeout/permissions/evidence; §3.4, UC-23, §4.7.7. Không sửa code Spring AI ở file MVP chưa được cung cấp |
+| F10 | Áp dụng tiêu chí demo và giới hạn bằng chứng vào §7; không khẳng định đã sửa Summary.md/MVP Scope.md không có trong đầu vào |
+| F11 | Áp dụng criticality/state/metrics/timezone, không gọi timeline là Event Sourcing; §2.6, §3, §5 |
+| F12 | Áp dụng single-tenant baseline, điều kiện RLS, DB deadline và vận hành; §2.5, §5.4, §8.5 |
+
+Không loại Kafka/Redis, sáu vai trò agent, rotation, SLO hay status page khỏi roadmap: đây là đề xuất thu hẹp **baseline**, không phải bằng chứng các năng lực đó sai scope Incident Operations. Không áp dụng các chỉnh sửa tên file, claim thị trường, pháp lý hoặc số liệu 70%/3× thuộc Document/Summary chưa cung cấp; README không thêm các claim đó. Chưa chọn số tuần khi thiếu dữ liệu năng lực/tiến độ. Không xem khuyến nghị trong Audit là chỉ thị tự động thực thi: từng điểm được đối chiếu với mục tiêu và invariant thiết kế.
+
+**Tự audit tài liệu:** giữ mục lục và mục chính 1–8, giữ 31 use case; đối chiếu text ↔ diagrams ↔ field/constraint ↔ API ↔ reference scenario. Mermaid cần parse/render toàn bộ bằng renderer version ghi trong báo cáo kiểm tra đi kèm. Rà soát tài liệu và parse diagram không thay integration/concurrency/crash/security tests; trạng thái reviewed/implemented/tested phải tách biệt và chỉ nâng khi có bằng chứng. README này không xác nhận code ứng dụng hoặc migration đã pass các ca §7.
 
 ### 8.7 Các Hạng mục Ngoài phạm vi
 
-Để giữ nguồn lực triển khai tập trung vào điểm khác biệt cốt lõi của NexusOps, các hạng mục sau được xem là **external integration, không phải mục tiêu tự xây**: một hệ thống observability đầy đủ (tự xây Prometheus/log collector riêng), một mô hình ML tự huấn luyện, một Kubernetes operator đầy đủ, một nền tảng provisioning dựa trên Terraform đầy đủ, một ứng dụng mobile native, và khả năng multi-region high availability. Prometheus, Grafana, Kubernetes, AWS và GitHub Actions được sử dụng như các hệ thống bên ngoài mà nền tảng tích hợp vào, không phải các hệ thống cần xây lại.
+Không tự xây observability platform/log collector, mô hình ML huấn luyện riêng, Kubernetes operator đầy đủ, Terraform provisioning platform, mobile native hay multi-region HA. Prometheus/Grafana/CloudWatch/Kubernetes/CI-CD là integration. Demo payment/bank app là đối tượng giám sát sandbox, không mở scope sang nghiệp vụ ngân hàng. NexusOps tiếp nhận tín hiệu, điều phối incident và hỗ trợ điều tra/remediation có kiểm soát; không cam kết tự phát hiện mọi lỗi hoặc chứng minh root cause chỉ bằng AI.
