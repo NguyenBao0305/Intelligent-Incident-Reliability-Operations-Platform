@@ -328,3 +328,377 @@ curl https://nexusops.local/audit-logs?resourceId=<incidentId>
 - [ ] Đã gõ sẵn toàn bộ lệnh ở Mục 4 vào terminal, chỉ cần Enter, không gõ tay lúc demo
 - [ ] Đã quyết định trước nhánh Act 3 sẽ dùng (nhanh hay đầy đủ) — không quyết định ngẫu hứng lúc demo
 - [ ] Đã canh giờ theo bảng 1.1: nếu vượt ngân sách, cắt nhánh đầy đủ ở Act 3 trước (tốn thời gian nhất), Act 6 giờ chỉ 10-15 giây nên không cần cắt
+
+
+# Role và Use Case tổng quát
+## Role
+**“Người có quyền…” trong sơ đồ mình đưa trước còn quá chung chung.** Với báo cáo của bạn, nên dùng tên cụ thể như **Quản trị viên, Quản lý nhóm, Người xử lý sự cố, Người xem**, rồi giải thích điều kiện quyền trong đặc tả.
+
+Cần phân biệt ba khái niệm:
+
+- **Actor:** vai trò của người hoặc hệ thống bên ngoài khi tương tác với NexusOps.
+- **Role tài khoản:** nhóm quyền được cấp cho một tài khoản, chẳng hạn `TEAM_MANAGER`.
+- **Vai trò trên incident:** trách nhiệm trong một sự cố cụ thể, chẳng hạn Commander của incident `INC-001`.
+
+**1. “Hệ thống giám sát” là gì?**
+
+Đây là **phần mềm bên ngoài theo dõi tình trạng của ứng dụng**, phát hiện dấu hiệu bất thường rồi gửi sự kiện vào NexusOps.
+
+Ví dụ:
+
+> Một ứng dụng thanh toán đang chạy. Prometheus thu thập tỷ lệ lỗi; khi tỷ lệ lỗi vượt ngưỡng, Alertmanager gửi cảnh báo qua một adapter đến NexusOps. NexusOps tiếp nhận, gộp cảnh báo, tạo incident và thông báo cho người phụ trách.
+
+Khi ứng dụng phục hồi, nguồn giám sát gửi sự kiện recovery. NexusOps kiểm tra các cảnh báo liên quan trước khi đóng incident.
+
+| Thành phần | Trách nhiệm |
+|---|---|
+| Ứng dụng thanh toán | Hệ thống đang được theo dõi |
+| Prometheus/Alertmanager và adapter | Phát hiện điều kiện cảnh báo, gửi sự kiện |
+| NexusOps | Quản lý cảnh báo, incident, người xử lý và quá trình khắc phục |
+
+Trong MVP, bạn có thể dùng **một chương trình giả lập nguồn giám sát** gửi `TRIGGER` và `RESOLVE` để demo. Ghi rõ đây là nguồn mô phỏng.
+
+Actor này xác thực bằng **integration key**, không đăng nhập như người dùng. Adapter hoặc chương trình giả lập cần cung cấp `episodeId` và `sourceSequence` theo hợp đồng MVP; không nên mặc định mọi công cụ giám sát đều có sẵn hai trường đó.
+
+**2. Những role tài khoản thực sự có trong MVP của bạn**
+
+MVP đang seed bốn role sau:
+
+| Role | Tên nên dùng trong báo cáo | Trách nhiệm |
+|---|---|---|
+| `ACCOUNT_ADMIN` | **Quản trị viên hệ thống** | Quản trị tài khoản và cấu hình; có toàn bộ permission đang được khai báo trong bộ seed |
+| `TEAM_MANAGER` | **Quản lý nhóm** | Quản lý các dịch vụ thuộc nhóm; cấu hình vận hành theo quyền được cấp |
+| `RESPONDER` | **Người xử lý sự cố** | Nhận thông báo, ACK, xử lý incident, yêu cầu AI hỗ trợ và thao tác remediation khi đủ điều kiện |
+| `VIEWER` | **Người xem** | Theo dõi dữ liệu được cho phép; cần xác định rõ những màn và dữ liệu được đọc |
+
+**Role không tự cho phép thao tác trên mọi incident.** Ví dụ, Responder có permission thực thi automation vẫn cần đúng team, được phân công trên incident và đáp ứng điều kiện của action trước khi duyệt.
+
+**3. Commander là ai?**
+
+**Commander là người điều phối một incident cụ thể.**
+
+Ví dụ:
+
+> Bình có tài khoản `RESPONDER`. Khi incident `INC-001` xảy ra, Bình được phân công làm `COMMANDER` để điều phối xử lý. Trong incident `INC-002`, Bình có thể chỉ là responder hoặc không được phân công.
+
+Vì vậy:
+
+- `RESPONDER` trong `user_roles` là role tài khoản.
+- `COMMANDER` trong `incident_responders` là vai trò trên incident.
+- Một người được gán Commander vẫn phải có permission phù hợp để phê duyệt action hoặc thao tác khác.
+
+Commander **có thể xuất hiện thành actor riêng trên sơ đồ UML** vì đó là một vai trò tương tác có ý nghĩa nghiệp vụ. Điều này không yêu cầu tạo thêm role toàn cục `COMMANDER` trong database.
+
+**4. “Người có quyền” trong sơ đồ trước tương ứng với ai?**
+
+| Nhãn mình dùng trước | Nên thể hiện cụ thể |
+|---|---|
+| Người có quyền cấu hình dịch vụ | **Quản trị viên hệ thống**, **Quản lý nhóm** |
+| Người tham gia xử lý sự cố | **Người xử lý sự cố**, **Commander của incident** |
+| Người có quyền rà soát PIR | **Quản lý nhóm**, **Commander của incident**, kèm quyền duyệt PIR |
+| Người có quyền xem thống kê | **Quản lý nhóm**, **Người xem**, hoặc tài khoản khác được cấp quyền đọc |
+| Người có quyền xem nhật ký | **Quản trị viên hệ thống** theo bộ permission seed hiện tại |
+| Người dùng/người được mời | Vai trò chung cho đăng nhập, đăng xuất và đăng ký qua invitation |
+| Hệ thống giám sát | Nguồn bên ngoài gửi sự kiện cảnh báo và phục hồi |
+
+Có một chỗ cần bổ sung trong MVP: **bộ permission hiện chưa mô tả đầy đủ quyền xem thống kê, xem dữ liệu của Viewer và duyệt PIR**. Hiện seed chỉ có `INCIDENT_ACK`, `INCIDENT_RESOLVE`, `AUTOMATION_EXECUTE`, `AI_RUN`, `AUDIT_VIEW`, `SERVICE_MANAGE`. Vì vậy, các quyền đọc và duyệt PIR cần được chốt bằng ma trận phân quyền trước khi hiện thực; không nên suy ra quyền chỉ từ tên role.
+
+**Sơ đồ của bạn nên dùng các actor cụ thể: Quản trị viên, Quản lý nhóm, Responder, Viewer, Commander và Hệ thống giám sát.** “Người dùng” có thể là actor chung cho các chức năng tài khoản. Các điều kiện như “được phân công trên incident”, “có quyền duyệt” và “đúng phạm vi dữ liệu” sẽ ghi trong đặc tả UC, giúp sơ đồ rõ hơn mà vẫn bám đúng cách phân quyền của dự án.
+
+## Use Case tổng quát
+**Sơ đồ 1 — Vai trò và xác thực.** Bốn role tài khoản cùng có khả năng đăng nhập/đăng xuất. Commander là vai trò trên incident và không kế thừa mặc định các quyền của Responder.
+
+```plantuml
+@startuml NexusOps_MVP_Actors
+left to right direction
+
+title NexusOps - Actor, role và truy cập tài khoản
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam actorBorderColor #334155
+skinparam usecaseBackgroundColor #EFF6FF
+skinparam usecaseBorderColor #2563EB
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #C4AD65
+
+actor "Người dùng có tài khoản" as User
+actor "Người được mời" as Invitee
+
+actor "Quản trị viên hệ thống\nACCOUNT_ADMIN" as Admin
+actor "Quản lý nhóm\nTEAM_MANAGER" as Manager
+actor "Người xử lý sự cố\nRESPONDER" as Responder
+actor "Người xem\nVIEWER" as Viewer
+
+actor "Người chỉ huy sự cố\nCOMMANDER của incident" as Commander
+
+' Generalization: tam giác rỗng hướng tới actor tổng quát.
+Admin --|> User
+Manager --|> User
+Responder --|> User
+Viewer --|> User
+Commander --|> User
+
+rectangle "NexusOps - truy cập tài khoản" {
+  usecase "Đăng ký bằng lời mời hợp lệ\nUC-01" as Register
+  usecase "Đăng nhập\nUC-01" as Login
+  usecase "Đăng xuất\nUC-01" as Logout
+}
+
+Invitee -- Register
+User -- Login
+User -- Logout
+
+note bottom of Register
+  Invitation hợp lệ, chưa dùng và chưa hết hạn.
+  Người đăng ký không tự chọn role đặc quyền.
+end note
+
+note bottom of Commander
+  Actor nghiệp vụ trên một incident cụ thể.
+  Người giữ vai trò này vẫn có role tài khoản riêng.
+
+  Kế thừa User chỉ biểu diễn khả năng
+  đăng nhập / đăng xuất.
+
+  Không tự cấp permission xử lý hoặc phê duyệt.
+end note
+
+legend bottom
+  **Role tài khoản được seed trong MVP — UC-02**
+  ACCOUNT_ADMIN: toàn bộ 6 permission được khai báo trong M1.
+  TEAM_MANAGER: SERVICE_MANAGE.
+  RESPONDER: INCIDENT_ACK, INCIDENT_RESOLVE, AUTOMATION_EXECUTE, AI_RUN.
+  VIEWER: đã có role, nhưng seed M1 chưa khai báo grant đọc cụ thể.
+
+  Một tài khoản có thể có nhiều role qua user_roles.
+
+  **Phạm vi — UC-03**
+  Một organization / team; vẫn kiểm tra membership và object scope.
+
+  **Vai trò trên incident**
+  RESPONDER / COMMANDER được lưu trong incident_responders.
+  Có permission chưa đủ: thao tác còn phải thỏa điều kiện incident / action.
+
+  Refresh token là cơ chế của phiên đăng nhập,
+  không tách thành mục tiêu người dùng riêng.
+endlegend
+
+@enduml
+```
+
+**Sơ đồ 2 — Use Case nghiệp vụ tổng quát.** Mã UC bám MVP. Các hành vi tự động như dedup, tạo incident, chuyển cấp và AI soạn nháp được tổng hợp vào những chức năng tương ứng; điều kiện chi tiết nằm trong đặc tả UC.
+
+```plantuml
+@startuml NexusOps_MVP_UseCases
+left to right direction
+
+title NexusOps - Use Case tổng quát MVP v3
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam packageStyle rectangle
+skinparam nodesep 28
+skinparam ranksep 55
+
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+skinparam usecaseBackgroundColor #EFF6FF
+skinparam usecaseBorderColor #2563EB
+skinparam packageBackgroundColor #FAFBFC
+skinparam packageBorderColor #94A3B8
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #C4AD65
+
+actor "Quản trị viên hệ thống\nACCOUNT_ADMIN" as Admin
+actor "Quản lý nhóm\nTEAM_MANAGER" as Manager
+actor "Người xử lý sự cố\nRESPONDER" as Responder
+actor "Người chỉ huy sự cố\nCOMMANDER của incident" as Commander
+actor "Người xem\nVIEWER" as Viewer
+
+actor "Hệ thống giám sát\nMonitoring System / Adapter" as Monitoring
+
+rectangle "NexusOps - nghiệp vụ MVP" {
+
+  package "A. Cấu hình dịch vụ và vận hành" {
+
+    usecase "Quản lý dịch vụ và\nquan hệ phụ thuộc\nUC-04, UC-05" as Services
+
+    usecase "Cấu hình kết nối giám sát\nvà integration key\nUC-06" as Integration
+
+    usecase "Cấu hình quy tắc\nxử lý sự kiện\nUC-08" as Rules
+
+    usecase "Gán người trực cố định và\ncấu hình chính sách chuyển cấp\nUC-13, UC-15" as OnCall
+  }
+
+  package "B. Tiếp nhận và phản ứng sự cố" {
+
+    usecase "Tiếp nhận và xử lý\nsự kiện giám sát\nUC-07, UC-09, UC-10" as Ingest
+
+    usecase "Nhận thông báo sự cố\nvà thông báo chuyển cấp\nUC-12, UC-16" as Notify
+
+    usecase "Xác nhận tiếp nhận sự cố\nUC-11" as Ack
+
+    usecase "Phối hợp bằng ghi chú\nvà dòng thời gian\nUC-17" as Collaborate
+
+    usecase "Kết thúc sự cố\nUC-19" as Resolve
+  }
+
+  package "C. Điều tra và khắc phục" {
+
+    usecase "Yêu cầu / xem kết quả\nđiều tra sự cố bằng AI\nUC-22, UC-23" as Investigate
+
+    usecase "Tra cứu kho kiến thức\nUC-24" as Knowledge
+
+    usecase "Yêu cầu và theo dõi\nthực thi runbook sandbox\nUC-20" as Runbook
+
+    usecase "Phê duyệt hoặc từ chối\nđề xuất khắc phục\nUC-21" as Approve
+  }
+
+  package "D. Báo cáo và theo dõi" {
+
+    usecase "Rà soát, chỉnh sửa và hoàn tất\nbáo cáo sau sự cố do AI soạn nháp\nUC-25, UC-26" as PIR
+
+    usecase "Xem thống kê MTTA / MTTR\nvà số lượng mẫu\nUC-27" as Metrics
+
+    usecase "Tra cứu nhật ký hoạt động\nUC-30" as Audit
+  }
+}
+
+' QUẢN TRỊ VIÊN
+Admin -- Services
+Admin -- Integration
+Admin -- Rules
+Admin -- OnCall
+Admin -- Audit
+
+' QUẢN LÝ NHÓM
+Manager -- Services
+Manager -- Integration
+Manager -- Rules
+Manager -- OnCall
+Manager -- PIR
+Manager -- Metrics
+
+' HỆ THỐNG GIÁM SÁT BÊN NGOÀI
+Monitoring -- Ingest
+Monitoring -- Resolve : gửi recovery
+
+' NGƯỜI XỬ LÝ SỰ CỐ
+Notify -- Responder
+Ack -- Responder
+Collaborate -- Responder
+Resolve -- Responder
+Investigate -- Responder
+Knowledge -- Responder
+Runbook -- Responder
+Approve -- Responder
+
+' COMMANDER ĐƯỢC PHÂN CÔNG TRÊN INCIDENT
+Collaborate -- Commander
+Approve -- Commander
+PIR -- Commander
+
+' QUYỀN VIEWER CẦN ĐƯỢC CHỐT THÊM TRONG MVP
+' Vẫn dùng đường liền của association.
+' Màu nâu chỉ biểu thị trạng thái đề xuất của yêu cầu.
+Metrics -[#B45309]- Viewer : đề xuất quyền đọc
+
+note right of Monitoring
+  Nguồn bên ngoài gửi TRIGGER / RESOLVE.
+
+  Ví dụ:
+  - Prometheus + Alertmanager qua adapter.
+  - Chương trình giả lập giám sát của nhóm.
+
+  Xác thực bằng integration key.
+  Adapter cung cấp episodeId / sourceSequence.
+end note
+
+note right of Commander
+  Vai trò được phân công trên từng incident.
+  Không phải role toàn cục trong user_roles.
+
+  Không kế thừa mặc định mọi quyền RESPONDER.
+
+  Muốn duyệt action cần:
+  - AUTOMATION_EXECUTE.
+  - Được phân công trên incident.
+  - Đúng phạm vi dữ liệu.
+  - Action đang ở trạng thái cho phép duyệt.
+end note
+
+legend bottom
+  **Cách đọc và phạm vi**
+  Mã UC theo MVP v3.
+  Một oval có thể tổng hợp các UC liên quan ở mức nghiệp vụ.
+
+  Actor thể hiện sự tham gia.
+  Association không cấp quyền và không mô tả thứ tự chạy.
+  Một người có thể đồng thời đóng nhiều actor.
+  Mọi thao tác vẫn kiểm tra permission và object scope.
+
+  UC-01 và mô hình role tài khoản nằm ở sơ đồ NexusOps_MVP_Actors.
+  UC-02: RBAC seed, chưa có role designer.
+  UC-03: seed một organization / team.
+
+  **Cần chốt phân quyền**
+  Quyền đọc VIEWER và grant cho PIR / analytics
+  chưa đầy đủ trong seed M1.
+  Đường màu nâu VIEWER - UC-27 là đề xuất bổ sung,
+  không mô tả quyền đã được cấp sẵn.
+
+  **Hoãn khỏi baseline**
+  UC-14, UC-18, UC-28, UC-29, UC-31.
+endlegend
+
+' QUY TẮC ĐẶC TẢ CHI TIẾT
+'
+' UC-07/09/10:
+' Xử lý event, dedup/grouping và tạo incident theo điều kiện.
+' Không include vô điều kiện việc tạo incident:
+' event có thể suppressed, stale hoặc là recovery.
+'
+' UC-12/16:
+' Chuyển cấp tự động theo timer, repeat hữu hạn và backstop.
+' Responder là người nhận thông báo.
+'
+' UC-22/23:
+' Một Investigation Agent chạy tự động khi tạo incident;
+' người có AI_RUN cũng có thể yêu cầu điều tra.
+'
+' UC-24:
+' Người dùng tra cứu trực tiếp.
+' AI có thể gọi RAG khi cần, không bắt buộc trong mọi phiên.
+'
+' UC-25/26:
+' AI tạo PIR DRAFT sau resolve.
+' Commander / Manager rà soát và phê duyệt.
+' DRAFT -> IN_REVIEW -> APPROVED -> COMPLETED.
+'
+' UC-19:
+' Recovery phải khớp episode.
+' Chỉ tự đóng incident khi mọi alert liên quan đã resolved.
+' Manual resolve cần ACKNOWLEDGED, quyền, scope và reason.
+'
+' UC-20/21:
+' Approval là tương tác riêng.
+' Worker kiểm tra lại quyền, trạng thái và snapshot trước dispatch.
+' HIGH / requiresApproval / thiếu pre-authorization đều cần duyệt.
+' Approval không vượt quota hoặc circuit breaker.
+' UNKNOWN phải đối soát kết quả, không retry mù.
+'
+' AI Agent, scheduler, database và worker nằm trong NexusOps.
+' Chúng không được vẽ thành actor của toàn bộ hệ thống.
+'
+' Admin không kế thừa Manager hoặc Responder:
+' quyền tài khoản và trách nhiệm trên incident được xét riêng.
+
+@enduml
+```
+
+Khi đưa vào báo cáo, đặt **sơ đồ vai trò trước sơ đồ nghiệp vụ**. Cách này làm rõ ai đang tương tác với hệ thống và tránh phải kéo thêm nhiều đường kế thừa, đăng nhập vào hình nghiệp vụ chính.
