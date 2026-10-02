@@ -1,0 +1,64 @@
+@startuml NexusOps_MVP_Actors
+left to right direction
+
+title NexusOps - Actor, role và truy cập tài khoản
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam actorBorderColor #334155
+skinparam usecaseBackgroundColor #EFF6FF
+skinparam usecaseBorderColor #2563EB
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #C4AD65
+
+actor "Người dùng có tài khoản" as User
+actor "Người được mời" as Invitee
+actor "Quản trị viên hệ thống\nACCOUNT_ADMIN" as Admin
+actor "Quản lý nhóm\nTEAM_MANAGER" as Manager
+actor "Người xử lý sự cố\nRESPONDER" as Responder
+actor "Người xem\nVIEWER" as Viewer
+actor "Người chỉ huy sự cố\nCOMMANDER của incident" as Commander
+
+' Mũi tên tam giác rỗng hướng tới actor tổng quát.
+Admin --|> User
+Manager --|> User
+Responder --|> User
+Viewer --|> User
+Commander --|> User
+
+rectangle "NexusOps - truy cập tài khoản" {
+  usecase "Đăng ký bằng lời mời hợp lệ\nUC-01" as Register
+  usecase "Đăng nhập\nUC-01" as Login
+  usecase "Đăng xuất\nUC-01" as Logout
+}
+
+Invitee -- Register
+User -- Login
+User -- Logout
+
+note bottom of Register
+  Invitation hợp lệ, chưa dùng và chưa hết hạn.
+  Người đăng ký không tự chọn role đặc quyền.
+end note
+
+note bottom of Commander
+  Actor nghiệp vụ trên một incident cụ thể.
+  Người giữ vai trò này vẫn có role tài khoản riêng.
+  Kế thừa User chỉ biểu diễn khả năng đăng nhập / đăng xuất;
+  không tự cấp permission xử lý hoặc phê duyệt.
+end note
+
+legend bottom
+  **Role tài khoản được seed trong MVP (UC-02)**
+  ACCOUNT_ADMIN: toàn bộ 6 permission đang được khai báo trong M1.
+  TEAM_MANAGER: SERVICE_MANAGE.
+  RESPONDER: INCIDENT_ACK, INCIDENT_RESOLVE, AUTOMATION_EXECUTE, AI_RUN.
+  VIEWER: đã có role, nhưng seed M1 chưa khai báo grant đọc cụ thể.
+  user_roles cho phép một tài khoản có nhiều role.
+  **Phạm vi (UC-03):** một organization / team, vẫn kiểm tra membership và object scope.
+  **Vai trò incident:** RESPONDER / COMMANDER trong incident_responders.
+  Có permission chưa đủ: các thao tác còn phải thỏa mãn điều kiện của incident / action.
+  Refresh token là cơ chế của phiên đăng nhập, không tách thành mục tiêu người dùng riêng.
+endlegend
+@enduml

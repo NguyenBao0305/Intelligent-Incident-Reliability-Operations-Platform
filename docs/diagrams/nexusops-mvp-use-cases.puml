@@ -1,0 +1,138 @@
+@startuml NexusOps_MVP_UseCases
+left to right direction
+
+title NexusOps - Use Case tổng quát MVP v3
+skinparam defaultFontName Arial
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam packageStyle rectangle
+skinparam nodesep 28
+skinparam ranksep 55
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+skinparam usecaseBackgroundColor #EFF6FF
+skinparam usecaseBorderColor #2563EB
+skinparam packageBackgroundColor #FAFBFC
+skinparam packageBorderColor #94A3B8
+skinparam noteBackgroundColor #FFFBEA
+skinparam noteBorderColor #C4AD65
+
+actor "Quản trị viên hệ thống\nACCOUNT_ADMIN" as Admin
+actor "Quản lý nhóm\nTEAM_MANAGER" as Manager
+actor "Người xử lý sự cố\nRESPONDER" as Responder
+actor "Người chỉ huy sự cố\nCOMMANDER của incident" as Commander
+actor "Người xem\nVIEWER" as Viewer
+actor "Hệ thống giám sát\nMonitoring System / Adapter" as Monitoring
+
+rectangle "NexusOps - nghiệp vụ MVP" {
+  package "A. Cấu hình dịch vụ và vận hành" {
+    usecase "Quản lý dịch vụ và\nquan hệ phụ thuộc\nUC-04, UC-05" as Services
+    usecase "Cấu hình kết nối giám sát\nvà integration key\nUC-06" as Integration
+    usecase "Cấu hình quy tắc\nxử lý sự kiện\nUC-08" as Rules
+    usecase "Gán người trực cố định và\ncấu hình chính sách chuyển cấp\nUC-13, UC-15" as OnCall
+  }
+
+  package "B. Tiếp nhận và phản ứng sự cố" {
+    usecase "Tiếp nhận và xử lý\nsự kiện giám sát\nUC-07, UC-09, UC-10" as Ingest
+    usecase "Nhận thông báo sự cố\nvà thông báo chuyển cấp\nUC-12, UC-16" as Notify
+    usecase "Xác nhận tiếp nhận sự cố\nUC-11" as Ack
+    usecase "Phối hợp bằng ghi chú\nvà dòng thời gian\nUC-17" as Collaborate
+    usecase "Kết thúc sự cố\nUC-19" as Resolve
+  }
+
+  package "C. Điều tra và khắc phục" {
+    usecase "Yêu cầu / xem kết quả\nđiều tra sự cố bằng AI\nUC-22, UC-23" as Investigate
+    usecase "Tra cứu kho kiến thức\nUC-24" as Knowledge
+    usecase "Yêu cầu và theo dõi\nthực thi runbook sandbox\nUC-20" as Runbook
+    usecase "Phê duyệt hoặc từ chối\nđề xuất khắc phục\nUC-21" as Approve
+  }
+
+  package "D. Báo cáo và theo dõi" {
+    usecase "Rà soát, chỉnh sửa và hoàn tất\nbáo cáo sau sự cố do AI soạn nháp\nUC-25, UC-26" as PIR
+    usecase "Xem thống kê MTTA / MTTR\nvà số lượng mẫu\nUC-27" as Metrics
+    usecase "Tra cứu nhật ký hoạt động\nUC-30" as Audit
+  }
+}
+
+' Actor - use case: association, không biểu diễn thứ tự thực hiện.
+Admin -- Services
+Admin -- Integration
+Admin -- Rules
+Admin -- OnCall
+Admin -- Audit
+
+Manager -- Services
+Manager -- Integration
+Manager -- Rules
+Manager -- OnCall
+Manager -- PIR
+Manager -- Metrics
+
+Monitoring -- Ingest
+Monitoring -- Resolve : gửi recovery
+
+Notify -- Responder
+Ack -- Responder
+Collaborate -- Responder
+Resolve -- Responder
+Investigate -- Responder
+Knowledge -- Responder
+Runbook -- Responder
+Approve -- Responder
+
+Collaborate -- Commander
+Approve -- Commander
+PIR -- Commander
+
+' VIEWER -> Analytics là đề xuất cần chốt, chưa có grant đọc trong seed M1.
+' Giữ đường liền để đây vẫn là association UML; màu phân biệt trạng thái đặc tả.
+Metrics -[#B45309]- Viewer : đề xuất quyền đọc
+
+note right of Monitoring
+  Nguồn bên ngoài gửi TRIGGER / RESOLVE.
+  Ví dụ: Prometheus + Alertmanager qua adapter,
+  hoặc chương trình giả lập giám sát của nhóm.
+  Xác thực bằng integration key.
+  Adapter cung cấp episodeId / sourceSequence.
+end note
+
+note right of Commander
+  Vai trò được phân công trên từng incident.
+  Không phải role toàn cục trong user_roles.
+  Không kế thừa mặc định mọi quyền RESPONDER.
+  Muốn duyệt action cần AUTOMATION_EXECUTE
+  và phân công đúng incident / đúng scope.
+end note
+
+legend bottom
+  **Cách đọc và phạm vi**
+  Mã UC theo MVP v3. Một oval có thể tổng hợp các UC liên quan ở mức nghiệp vụ.
+  Actor thể hiện sự tham gia; association không cấp quyền và không mô tả thứ tự chạy.
+  Một người có thể đồng thời đóng nhiều actor. Mọi thao tác vẫn kiểm tra permission và object scope.
+  UC-01 và mô hình role tài khoản được thể hiện ở sơ đồ NexusOps_MVP_Actors.
+  UC-02: RBAC seed, chưa có role designer. UC-03: seed một organization / team.
+  **Cần chốt phân quyền:** quyền đọc VIEWER và grant cho PIR / analytics chưa đầy đủ trong seed M1.
+  Đường màu nâu VIEWER - UC-27 là đề xuất bổ sung; không mô tả quyền đã được cấp sẵn.
+  **Hoãn khỏi baseline:** UC-14, UC-18, UC-28, UC-29, UC-31.
+endlegend
+
+' NGỮ NGHĨA CỦA CÁC UC ĐƯỢC TỔNG HỢP:
+' UC-07/09/10: xử lý event, dedup/grouping và tạo incident theo điều kiện.
+' Không include vô điều kiện dedup/create vì event có thể suppressed/stale/RESOLVE.
+' UC-12/16: chuyển cấp tự động theo timer hữu hạn; responder nhận thông báo.
+' UC-22/23: một Investigation Agent; chạy tự động hoặc được yêu cầu với AI_RUN.
+' UC-24: người dùng tra cứu trực tiếp; AI cũng có thể gọi RAG nội bộ khi cần.
+' Không include UC-24 bắt buộc vào Investigation vì AI được chọn tool.
+' UC-25/26: AI tạo DRAFT sau resolve; Commander/Manager rà soát và duyệt.
+' PIR đi qua DRAFT -> IN_REVIEW -> APPROVED -> COMPLETED.
+' UC-19: recovery cần khớp episode và tất cả alert liên quan đã resolved.
+' Manual resolve cần ACKNOWLEDGED, quyền, scope và reason.
+' UC-20/21: approval là tương tác riêng; execution revalidate trạng thái và quyền.
+' HIGH / requiresApproval / thiếu pre-authorization hợp lệ đều cần approval.
+' Hết quota (2 reservation / 15 phút) hoặc breaker chặn thì chưa được dispatch.
+' Approval không vượt guard. UNKNOWN cần query outcome, không retry mù.
+' Không đưa AI Agent, scheduler, DB, worker thành actor của toàn hệ thống NexusOps.
+' Actor cấu hình theo mục đích nghiệp vụ; quyền endpoint tương ứng phải được đặc tả.
+' Không có quan hệ Admin kế thừa Manager/Responder: quyền không tương đương trách nhiệm.
+@enduml

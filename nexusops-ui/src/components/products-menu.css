@@ -1,0 +1,160 @@
+.landing-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: clamp(24px, 3.5vw, 52px);
+  padding: 16px clamp(24px, 3.5vw, 48px);
+}
+
+.landing-account { white-space: nowrap; }
+
+.products-trigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 0;
+  color: #52645d;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.products-trigger svg {
+  color: #87988f;
+  transition: transform 220ms ease, color 180ms ease;
+}
+
+.products-trigger:hover,
+.products-trigger[aria-expanded="true"] { color: #047857; }
+
+.products-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+  color: #059669;
+}
+
+.products-trigger:focus-visible {
+  outline: 2px solid #059669;
+  outline-offset: 5px;
+  border-radius: 4px;
+}
+
+.products-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: clamp(16px, 3.5vw, 48px);
+  width: min(790px, calc(100% - 32px));
+  max-height: calc(100dvh - 170px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 26px;
+  border: 1px solid #e0ece5;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #fff 45%, #f6fbf8);
+  box-shadow: 0 20px 60px -16px #123c2c26, 0 4px 14px #23463506;
+  transform-origin: top left;
+  animation: products-reveal 200ms ease-out both;
+}
+
+.products-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 17px;
+  color: #819489;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.7px;
+}
+
+.products-eyebrow > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #61b68e;
+}
+
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  padding: 19px 12px;
+  border-radius: 14px;
+  transition: background 180ms ease;
+}
+
+.product-summary:hover { background: #eef6f0; }
+
+.product-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  height: 46px;
+  border: 1px solid #bedfcc70;
+  border-radius: 14px;
+  background: #eaf7ef;
+  color: #208461;
+}
+
+.product-icon-sage { background: #f0f4e9; color: #748943; border-color: #dce6c6; }
+.product-icon-teal { background: #eaf5f3; color: #378c83; border-color: #cce7e2; }
+.product-icon-blue { background: #edf3f7; color: #527e96; border-color: #d6e5ed; }
+
+.product-summary h2 {
+  margin: 1px 0 7px;
+  color: #233c30;
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -.2px;
+}
+
+.product-summary p {
+  margin: 0;
+  color: #7a8880;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.8;
+}
+
+@keyframes products-reveal {
+  from { opacity: 0; transform: translateY(-6px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .landing-header { column-gap: 22px; padding-inline: 24px; }
+  .landing-nav, .landing-nav > div { gap: 18px; }
+  .landing-account { gap: 16px; }
+}
+
+@media (max-width: 639px) {
+  .landing-header {
+    grid-template-columns: 1fr auto;
+    gap: 8px 16px;
+    padding: 12px 20px 8px;
+  }
+  .landing-account { grid-column: 2; grid-row: 1; gap: 14px; }
+  .landing-nav { grid-column: 1 / -1; grid-row: 2; }
+  .products-panel { top: calc(100% + 8px); padding: 20px 14px 14px; border-radius: 18px; }
+  .products-grid { grid-template-columns: 1fr; gap: 2px; }
+  .products-eyebrow { margin-left: 10px; margin-bottom: 9px; font-size: 9px; }
+  .product-summary { padding: 15px 10px; gap: 13px; }
+  .product-summary h2 { font-size: 16px; }
+  .product-icon { flex-basis: 42px; height: 42px; border-radius: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .products-panel { animation: none; }
+  .products-trigger, .products-trigger svg, .product-summary { transition: none; }
+}
