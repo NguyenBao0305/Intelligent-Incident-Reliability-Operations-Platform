@@ -1,0 +1,130 @@
+/* Short entrance animation; hash-only anchors do not restart the page. */
+.page-transition {
+  animation: page-enter 240ms ease-out;
+}
+
+@keyframes page-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.auth-form-content {
+  animation: form-enter 280ms cubic-bezier(.2, .7, .3, 1);
+}
+
+@keyframes form-enter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.landing-nav button,
+.landing-nav a,
+.landing-account button,
+.landing-account a,
+.landing-brand a,
+.auth-topbar a,
+.auth-brand {
+  transition: color 180ms ease, background-color 180ms ease,
+    box-shadow 180ms ease, transform 140ms ease;
+}
+
+.landing-nav button,
+.landing-nav a {
+  position: relative;
+  border-radius: 5px;
+}
+
+.landing-nav button::after,
+.landing-nav a::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 2px;
+  background: #64bda0;
+  opacity: 0;
+  transform: scaleX(.35);
+  transform-origin: center;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.landing-nav button[aria-expanded="true"]::after,
+.landing-nav button:focus-visible::after,
+.landing-nav a:focus-visible::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.landing-header a:focus-visible,
+.landing-header button:focus-visible {
+  outline: 2px solid #059669;
+  outline-offset: 5px;
+}
+
+/* Hover only on devices with a precise pointer, avoiding sticky touch states. */
+@media (hover: hover) and (pointer: fine) {
+  .landing-nav button:hover,
+  .landing-nav a:hover {
+    background-color: #eef8f2;
+    box-shadow: 0 0 0 7px #eef8f2;
+    transform: translateY(-1px);
+  }
+
+  .landing-nav button:hover::after,
+  .landing-nav a:hover::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  .landing-account a:hover,
+  .landing-account button:hover,
+  .landing-brand a:hover,
+  .auth-topbar a:hover {
+    transform: translateY(-1px);
+  }
+
+  .auth-topbar a:hover svg { transform: translateX(2px); }
+  .auth-topbar > a:hover svg { transform: translateX(-2px); }
+  .product-summary:hover .product-icon { transform: translateY(-2px); }
+}
+
+.auth-topbar a svg,
+.product-icon {
+  transition: transform 180ms ease;
+}
+
+.landing-nav button:active,
+.landing-nav a:active,
+.landing-account button:active,
+.landing-account a:active,
+.landing-brand a:active,
+.auth-topbar a:active,
+.auth-brand:active {
+  transform: translateY(1px) scale(.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition,
+  .auth-form-content {
+    animation: none;
+  }
+
+  .landing-header *,
+  .landing-header *::after,
+  .auth-topbar a,
+  .auth-topbar a svg,
+  .auth-brand {
+    transition: none !important;
+  }
+
+  .landing-header a,
+  .landing-header button,
+  .product-icon,
+  .auth-topbar a,
+  .auth-topbar a svg,
+  .auth-brand {
+    transform: none !important;
+  }
+}

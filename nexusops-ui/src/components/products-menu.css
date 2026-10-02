@@ -2,7 +2,7 @@
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  column-gap: clamp(24px, 3.5vw, 52px);
+  column-gap: clamp(14px, 1.5vw, 22px);
   padding: 16px clamp(24px, 3.5vw, 48px);
 }
 
@@ -122,7 +122,7 @@
   margin: 0;
   color: #7a8880;
   font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.8;
 }
@@ -133,7 +133,7 @@
 }
 
 @media (min-width: 1024px) and (max-width: 1199px) {
-  .landing-header { column-gap: 22px; padding-inline: 24px; }
+  .landing-header { column-gap: 16px; padding-inline: 24px; }
   .landing-nav, .landing-nav > div { gap: 18px; }
   .landing-account { gap: 16px; }
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, InputHTMLAttributes } from 'react';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, Activity, ShieldCheck, KeyRound, Info, Mail } from 'lucide-react';
 import './auth.css';
+import { acceptsDemoCredentials, DEMO_ACCOUNT } from '../demo/auth';
 
 type Mode = 'login' | 'signup';
 type FieldName = 'name' | 'email' | 'invitation' | 'password' | 'confirm';
@@ -28,12 +29,13 @@ function Field({ label, error, hint, ...props }: InputHTMLAttributes<HTMLInputEl
   );
 }
 
-export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: string }) {
+export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; initialEmail: string; onDemoLogin: () => void }) {
   const signup = mode === 'signup';
   const [fields, setFields] = useState<Fields>({ name: '', email: initialEmail, invitation: '', password: '', confirm: '' });
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
   const [help, setHelp] = useState(false);
+  const [credentialError, setCredentialError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
   const form = useRef<HTMLFormElement>(null);
 
@@ -43,6 +45,7 @@ export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: str
     setFields(previous => ({ ...previous, [name]: value }));
     setErrors(previous => ({ ...previous, [name]: undefined, ...(name === 'password' ? { confirm: undefined } : {}) }));
     setSubmitted(false);
+    setCredentialError('');
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -57,7 +60,11 @@ export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: str
       if (!fields.confirm || fields.confirm !== fields.password) next.confirm = 'Your passwords must match.';
     }
     setErrors(next);
-    setSubmitted(Object.keys(next).length === 0);
+    setSubmitted(signup && Object.keys(next).length === 0);
+    if (!signup && Object.keys(next).length === 0) {
+      if (acceptsDemoCredentials(fields.email, fields.password)) onDemoLogin();
+      else setCredentialError('Use the demo email and password shown above. Live authentication is not connected yet.');
+    }
     const first = (signup ? ['name', 'email', 'invitation', 'password', 'confirm'] : ['email', 'password']).find(key => next[key as FieldName]);
     if (first) form.current?.querySelector<HTMLInputElement>(`[name="${first}"]`)?.focus();
   }
@@ -67,22 +74,24 @@ export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: str
   return (
     <main className={`auth-page ${signup ? 'auth-signup' : ''}`}>
       <section className="auth-story" aria-label="About NexusOps">
-        <a className="auth-brand" href="#" aria-label="NexusOps home">Nexus<span>Ops</span><span className="auth-brand-dot" /></a>
+        <a className="auth-brand" href="#" aria-label="NexusOps home">Nexus<span>Ops</span></a>
         <div className="auth-story-content">
-          <span className="auth-eyebrow"><span /> BUILT FOR THE PEOPLE ON CALL</span>
-          <h2>{signup ? <>Better response.<br />Starts with <em>your team.</em></> : <>When every<br />moment <em>matters.</em></>}</h2>
-          <p className="auth-story-description">{signup ? 'A shared place to investigate, coordinate, and learn from every incident.' : 'Bring your alerts, responders, and next steps together. Get back to what matters.'}</p>
-          <div className="auth-incident-card">
-            <div className="auth-card-heading"><span><Activity size={15} /> INCIDENT WORKSPACE</span><span className="auth-example">Preview</span></div>
-            <div className="auth-incident-title"><span className="auth-severity">P2</span><strong>API response latency elevated</strong></div>
-            <div className="auth-service">payments-api <span>•</span> Production</div>
-            <div className="auth-timeline">
-              <div><span className="auth-step"><Activity size={13} /></span><p>Signal received<small>Related alerts, one clear picture</small></p><Check size={15} /></div>
-              <div><span className="auth-step"><Check size={13} /></span><p>Responder acknowledged<small>Ownership established</small></p><Check size={15} /></div>
-              <div><span className="auth-step auth-step-current"><ShieldCheck size={13} /></span><p>Investigating together<small>Evidence before action</small></p><span className="auth-live-dot" /></div>
-            </div>
+          <span className="auth-eyebrow"><span /> {signup ? 'ACCOUNT SETUP GUIDE' : 'SIGN-IN GUIDE'}</span>
+          <h2>{signup ? <>Create your<br /><em>team account.</em></> : <>Before you<br /><em>sign in.</em></>}</h2>
+          <p className="auth-story-description">{signup ? 'Use the invitation sent by your NexusOps administrator to set up your account.' : 'Use the work email linked to your NexusOps team. Your organization manages access to this workspace.'}</p>
+          <div className="auth-incident-card auth-guide-card">
+            <div className="auth-card-heading"><span><ShieldCheck size={15} /> {signup ? 'SIGN-UP STEPS' : 'AFTER YOU SIGN IN'}</span></div>
+            {signup ? <div className="auth-guide-list" role="list">
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><Mail size={15} /></span><p>Use your invited email<small>It must match the address your administrator invited.</small></p></div>
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><KeyRound size={15} /></span><p>Enter your invitation code<small>Your workspace administrator provides the code.</small></p></div>
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><ShieldCheck size={15} /></span><p>Create your password<small>Your role and access are assigned by your organization.</small></p></div>
+            </div> : <div className="auth-guide-list" role="list">
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><Activity size={15} /></span><p>Review active incidents<small>See severity, affected service and assigned responders.</small></p></div>
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><Check size={15} /></span><p>Follow response progress<small>Check ACK status, timeline updates and team notes.</small></p></div>
+              <div className="auth-guide-item" role="listitem"><span className="auth-guide-icon"><ShieldCheck size={15} /></span><p>Use your assigned permissions<small>Available actions depend on your account role and incident access.</small></p></div>
+            </div>}
           </div>
-          <div className="auth-story-caption"><ShieldCheck size={17} /><span>Human judgment. Shared context. Clear ownership.</span></div>
+          <div className="auth-story-caption"><ShieldCheck size={17} /><span>{signup ? 'No invitation? Ask your workspace administrator to invite you.' : 'Need access? Ask your workspace administrator for an invitation.'}</span></div>
         </div>
         <div className="auth-story-footer"><span>INTELLIGENT INCIDENT OPERATIONS</span><span>01 — READY TO RESPOND</span></div>
       </section>
@@ -95,6 +104,14 @@ export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: str
           <h1 ref={heading} tabIndex={-1}>{signup ? 'Join your team.' : 'Welcome back.'}</h1>
           <p className="auth-description">{signup ? 'Create your account with an invitation from your NexusOps administrator.' : 'Log in to your NexusOps workspace.'}</p>
 
+          {!signup && <div className="auth-demo-account">
+            <div><strong>Explore as a Responder</strong><span>Sample workspace · frontend demo</span></div>
+            <p>Email: <code>{DEMO_ACCOUNT.email}</code><br />Password: <code>{DEMO_ACCOUNT.password}</code></p>
+            <button type="button" onClick={() => {
+              setFields(previous => ({ ...previous, email: DEMO_ACCOUNT.email, password: DEMO_ACCOUNT.password }));
+              setErrors({}); setCredentialError('');
+            }}>Use demo account <ArrowRight size={15} /></button>
+          </div>}
           <form ref={form} noValidate onSubmit={submit} className="auth-form">
             {signup && <Field {...input('name')} label="Full name" type="text" placeholder="Alex Morgan" autoComplete="name" maxLength={120} />}
             <Field {...input('email')} label={signup ? 'Invited email address' : 'Work email'} type="email" placeholder="you@company.com" autoComplete="username" spellCheck={false} autoCapitalize="none" />
@@ -103,12 +120,13 @@ export function AuthPage({ mode, initialEmail }: { mode: Mode; initialEmail: str
             {signup && <Field {...input('confirm')} label="Confirm password" type="password" placeholder="Re-enter your password" autoComplete="new-password" />}
             {!signup && <div className="auth-form-options"><span><ShieldCheck size={14} /> Your team workspace</span><button type="button" onClick={() => setHelp(!help)} aria-expanded={help} aria-controls="auth-help">Need help signing in?</button></div>}
             {help && <p id="auth-help" className="auth-help">Contact your workspace administrator if you need to recover access or receive a new invitation.</p>}
+            {credentialError && <p className="auth-error" role="alert">{credentialError}</p>}
             <button className="auth-submit" type="submit">{signup ? 'Create account' : 'Log in'} <ArrowRight size={17} /></button>
             {submitted && <div className="auth-feedback" role="status"><Info size={18} /><p><strong>Form ready for connection</strong>{signup ? 'Your account has not been created. Invitation verification and registration will be available when authentication is connected.' : 'You are viewing a UI preview. Authentication is not connected yet, so no sign-in session has been created.'}</p></div>}
           </form>
 
           {signup && <p className="auth-invite-note"><ShieldCheck size={16} /><span>Your administrator manages workspace access and permissions.</span></p>}
-          <div className="auth-preview-note"><span /> UI preview · Authentication coming soon</div>
+          <div className="auth-preview-note"><span /> {signup ? 'UI preview · Authentication coming soon' : 'Demo access · No live authentication'}</div>
         </div>
         <footer className="auth-form-footer"><span>© {new Date().getFullYear()} NexusOps</span><span>Clarity in every incident.</span></footer>
       </section>

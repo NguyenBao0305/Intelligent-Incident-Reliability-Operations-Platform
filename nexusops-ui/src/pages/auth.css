@@ -37,22 +37,15 @@
   display:inline-flex;
   align-items:center;
   width:fit-content;
-  font-family:Syne,sans-serif;
+  font-family:Outfit,sans-serif;
   font-size:29px;
-  font-weight:700;
-  letter-spacing:-1.5px;
+  font-weight:600;
+  letter-spacing:-1.35px;
   position:relative
 }
 .auth-brand>span:first-child{
   color:#76d8ae;
-  font-weight:400
-}
-.auth-brand-dot{
-  width:6px;
-  height:6px;
-  background:#93e0b3;
-  border-radius:50%;
-  margin:15px 0 0 5px
+  font-weight:300
 }
 .auth-story-content{
   position:relative;
@@ -105,6 +98,11 @@
   box-shadow:0 24px 45px #001c201a;
   backdrop-filter:blur(12px)
 }
+.auth-guide-list{display:grid;gap:0;margin-top:16px}
+.auth-guide-item{display:flex;align-items:flex-start;gap:11px;padding:14px 0;border-top:1px solid #c8e3d31c}
+.auth-guide-icon{width:27px;height:27px;display:grid;place-items:center;flex-shrink:0;border:1px solid #a3d7bd35;border-radius:9px;background:#9cddbe13;color:#a0dbb8}
+.auth-guide-item p{padding-top:2px;font-size:11px;line-height:1.6;color:#e5f1e9}
+.auth-guide-item small{display:block;margin-top:2px;font-size:10px;line-height:1.65;color:#9dbdad}
 .auth-card-heading{
   display:flex;
   justify-content:space-between;
@@ -227,7 +225,7 @@
   justify-content:space-between;
   align-items:center;
   gap:20px;
-  font-size:10px;
+  font-size:12px;
   color:#78827d
 }
 .auth-topbar a{
@@ -262,7 +260,7 @@
   box-shadow:0 4px 8px #193d2405
 }
 .auth-form-eyebrow{
-  font-size:9px;
+  font-size:10px;
   letter-spacing:1.8px;
   color:#7b8a81;
   font-weight:600;
@@ -278,7 +276,7 @@
 }
 .auth-description{
   margin-top:12px;
-  font-size:12px;
+  font-size:14px;
   line-height:1.8;
   color:#79847d
 }
@@ -289,7 +287,7 @@
 }
 .auth-field label{
   display:block;
-  font-size:11px;
+  font-size:13px;
   font-weight:600;
   margin-bottom:8px;
   color:#344d40
@@ -299,14 +297,14 @@
 }
 .auth-input{
   width:100%;
-  height:47px;
+  height:50px;
   padding:0 14px;
   border:1px solid #d9e2da;
   border-radius:8px;
   background:#fff;
   color:#243a2b;
   font-family:inherit;
-  font-size:12px;
+  font-size:14px;
   outline:none;
   transition:border-color .2s,box-shadow .2s
 }
@@ -327,7 +325,7 @@
   position:absolute;
   right:0;
   top:0;
-  height:47px;
+  height:50px;
   width:44px;
   display:grid;
   place-items:center;
@@ -338,7 +336,7 @@
   color:#196c46
 }
 .auth-hint,.auth-error{
-  font-size:10px;
+  font-size:12px;
   line-height:1.7;
   margin-top:6px
 }
@@ -353,7 +351,7 @@
   align-items:center;
   justify-content:space-between;
   gap:10px;
-  font-size:10px
+  font-size:12px
 }
 .auth-form-options>span{
   display:flex;
@@ -367,7 +365,7 @@
   cursor:pointer
 }
 .auth-help{
-  font-size:11px;
+  font-size:12px;
   background:#edf4ee;
   padding:12px;
   border-radius:7px;
@@ -383,7 +381,7 @@
   border-radius:8px;
   background:#14784e;
   color:#fff;
-  font-size:12px;
+  font-size:14px;
   font-weight:600;
   cursor:pointer;
   box-shadow:0 3px 6px #17533213;
@@ -403,7 +401,7 @@
   background:#f0f6f2;
   border-radius:8px;
   padding:13px;
-  font-size:11px;
+  font-size:13px;
   line-height:1.8;
   color:#53715e
 }
@@ -422,7 +420,7 @@
   gap:8px;
   margin-top:18px;
   color:#7b8e80;
-  font-size:10px;
+  font-size:12px;
   line-height:1.8
 }
 .auth-invite-note svg{
@@ -434,7 +432,7 @@
   justify-content:center;
   align-items:center;
   gap:6px;
-  font-size:9px;
+  font-size:11px;
   color:#929c95;
   margin-top:28px
 }
@@ -448,7 +446,7 @@
   display:flex;
   justify-content:space-between;
   gap:16px;
-  font-size:9px;
+  font-size:10px;
   color:#9ba39c
 }
 .auth-signup .auth-form-content{
@@ -547,3 +545,11 @@
     animation:none!important
   }
 }
+.auth-demo-account { margin: 22px 0; padding: 18px 20px; border: 1px solid #cde4d8; border-radius: 16px; background: #f0f7f2; color: #315747; }
+.auth-demo-account strong { display: block; font-size: 15px; }
+.auth-demo-account span { display: block; margin-top: 4px; font-size: 12px; color: #647d70; }
+.auth-demo-account p { margin: 12px 0; font-size: 13px; line-height: 1.9; overflow-wrap: anywhere; }
+.auth-demo-account code { font-size: 13px; }
+.auth-demo-account button { display: inline-flex; align-items: center; gap: 8px; padding: 7px 0; color: #127650; font-size: 14px; font-weight: 600; cursor: pointer; }
+.auth-demo-account button:hover { color: #064d34; }
+.auth-demo-account button:focus-visible { outline: 2px solid #127650; outline-offset: 4px; border-radius: 4px; }

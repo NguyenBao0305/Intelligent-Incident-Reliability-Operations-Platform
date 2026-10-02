@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { AuthPage } from './pages/AuthPage';
+import { ResponderDashboard } from './features/responder/ResponderDashboard';
+import { hasDemoSession, setDemoSession } from './demo/auth';
 import { ProductsMenu } from './components/ProductsMenu';
+import './motion.css';
 import { 
   ChevronDown, 
   Search, 
@@ -86,15 +89,15 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
       <header className="landing-header w-full bg-white/90 backdrop-blur-md border-b border-slate-100 z-20 sticky top-0">
         {/* Left: NexusOps Logo - Nghệ thuật & Tinh tế */}
         <div className="landing-brand">
-          <a href="/" className="group flex items-center transition cursor-pointer">
-            <span className="font-['Syne'] text-[26px] sm:text-[28px] font-bold tracking-tight text-slate-900 group-hover:text-emerald-700 transition">
+          <a href="#" className="group flex items-center transition cursor-pointer">
+            <span className="font-['Outfit'] text-[27px] sm:text-[29px] font-semibold tracking-[-0.045em] text-slate-900 group-hover:text-emerald-700 transition">
               Nexus<span className="font-light text-emerald-600">Ops</span>
             </span>
           </a>
         </div>
 
           {/* Navigation Links */}
-          <nav aria-label="Main navigation" className="landing-nav flex items-center gap-8 text-[13px] font-medium text-slate-600">
+          <nav aria-label="Main navigation" className="landing-nav flex items-center gap-8 text-[15px] font-medium text-slate-600">
             <ProductsMenu />
             <div className="hidden lg:flex items-center gap-8">
             <button className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer">
@@ -113,7 +116,7 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
           </nav>
 
         {/* Right: Contact Us, Login, Sign Up */}
-        <div className="landing-account flex items-center gap-5 sm:gap-6 text-[13px]">
+        <div className="landing-account flex items-center gap-5 sm:gap-6 text-[15px]">
           <button className="hidden sm:flex items-center gap-1.5 text-slate-600 hover:text-emerald-700 font-medium transition cursor-pointer">
             <Search className="w-3.5 h-3.5 text-slate-400" />
             <span>Contact Us</span>
@@ -123,7 +126,7 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
           </a>
           <a 
             href="#signup" 
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-full font-semibold text-xs tracking-wide transition shadow-sm hover:shadow-md cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-full font-semibold text-[13px] tracking-wide transition shadow-sm hover:shadow-md cursor-pointer"
           >
             Sign Up
           </a>
@@ -353,6 +356,7 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
 export function App() {
   const [hash, setHash] = useState(window.location.hash);
   const [initialEmail, setInitialEmail] = useState('');
+  const [authenticated, setAuthenticated] = useState(hasDemoSession);
 
   useEffect(() => {
     const navigate = () => {
@@ -363,18 +367,27 @@ export function App() {
     return () => window.removeEventListener('hashchange', navigate);
   }, []);
 
-  const mode = hash === '#login' ? 'login' : hash === '#signup' ? 'signup' : null;
+  const workspace = hash === '#workspace';
+  const mode = hash === '#login' || (workspace && !authenticated) ? 'login' : hash === '#signup' ? 'signup' : null;
 
   useEffect(() => {
-    document.title = mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
-  }, [mode]);
+    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
+  }, [mode, workspace, authenticated]);
 
-  return mode ? <AuthPage key={mode} mode={mode} initialEmail={initialEmail} /> : (
+  return <div key={mode ?? (workspace ? 'workspace' : 'home')} className="page-transition">{workspace && authenticated ? <ResponderDashboard onLogout={() => {
+    setDemoSession(false);
+    setAuthenticated(false);
+    window.location.hash = 'login';
+  }} /> : mode ? <AuthPage mode={mode} initialEmail={initialEmail} onDemoLogin={() => {
+    setDemoSession(true);
+    setAuthenticated(true);
+    window.location.hash = 'workspace';
+  }} /> : (
     <LandingPage onStart={(email) => {
       setInitialEmail(email);
       window.location.hash = 'signup';
     }} />
-  );
+  )}</div>;
 }
 
 export default App;
