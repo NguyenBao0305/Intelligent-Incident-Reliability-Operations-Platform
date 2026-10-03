@@ -1,0 +1,21 @@
+.solutions-panel { width:min(940px,calc(100% - 32px)); }
+.solutions-panel .products-eyebrow { color:#60796a; font-size:11px; }
+.solutions-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:start; }
+.solution-card { border:1px solid transparent; border-radius:16px; transition:background 180ms ease,border-color 180ms ease; }
+.solution-card:hover,.solution-card[open] { background:#f0f7f2; border-color:#dcebe0; }
+.solution-card summary { display:flex; align-items:flex-start; gap:14px; padding:20px 16px; cursor:pointer; list-style:none; }
+.solution-card summary::-webkit-details-marker { display:none; }
+.solution-card summary:focus-visible { outline:2px solid #059669; outline-offset:2px; border-radius:14px; }
+.solution-summary { display:block; min-width:0; }
+.solution-title { display:block; font-family:Outfit,sans-serif; font-size:19px; font-weight:500; line-height:1.35; color:#233c30; }
+.solution-description { display:block; margin-top:8px; font-size:14px; font-weight:400; line-height:1.8; color:#5f7668; }
+.solution-chevron { flex-shrink:0; margin-top:5px; color:#658271; transition:transform 180ms ease; }
+.solution-card[open] .solution-chevron { transform:rotate(180deg); }
+.solution-detail { margin:0 18px; padding:0 0 20px; border-top:1px solid #dcebe0; }
+.solution-detail h3 { margin:16px 0 5px; color:#335b44; font-size:13px; font-weight:600; }
+.solution-detail p { color:#506859; font-size:14px; line-height:1.8; font-weight:400; }
+.solution-detail ul { display:flex; flex-wrap:wrap; gap:6px; list-style:none; margin:8px 0 0; padding:0; }
+.solution-detail li { padding:5px 8px; border:1px solid #d4e5d9; border-radius:7px; background:#fff; color:#426e53; font-size:12px; font-weight:500; }
+.solutions-caption { margin:20px 12px 0; padding-top:15px; border-top:1px solid #e2ebe5; color:#6b7f71; font-size:12px; line-height:1.7; font-weight:400; }
+@media(max-width:639px) { .solutions-grid { grid-template-columns:1fr; gap:4px; }.solution-card summary { padding:16px 10px; gap:11px; }.solution-title { font-size:18px; }.solutions-panel .products-eyebrow { letter-spacing:1px; font-size:10px; }.solutions-caption { margin-inline:10px; } }
+@media(prefers-reduced-motion:reduce) { .solution-card,.solution-chevron { transition:none; } }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Activity, BellRing, ChartNoAxesCombined, ChevronDown, Sparkles } from 'lucide-react';
+import { Activity, BellRing, ChartNoAxesCombined, ChevronDown, Sparkles, Server, Cable, ShieldCheck, ClipboardList } from 'lucide-react';
 import './products-menu.css';
 
 const products = [
@@ -22,11 +22,18 @@ const products = [
     tone: 'teal',
   },
   {
-    title: 'Post-Incident & Insights',
+    title: 'Post-Incident Review & Insights',
     description: 'Learn from incidents and track response performance.',
     icon: ChartNoAxesCombined,
     tone: 'blue',
   },
+];
+
+const platform = [
+  { title: 'Service Catalog', description: 'See service ownership, criticality and dependencies.', icon: Server, tone: 'mint' },
+  { title: 'Monitoring Integrations', description: 'Bring alerts into NexusOps from monitoring tools.', icon: Cable, tone: 'teal' },
+  { title: 'Policies & Permissions', description: 'Define escalation paths and role-based access.', icon: ShieldCheck, tone: 'sage' },
+  { title: 'Audit Trail', description: 'Keep a clear history of incident and approval actions.', icon: ClipboardList, tone: 'blue' },
 ];
 
 export function ProductsMenu() {
@@ -66,17 +73,30 @@ export function ProductsMenu() {
       {open && (
         <div id={panelId} className="products-panel">
           <p className="products-eyebrow"><span aria-hidden="true" /> EXPLORE NEXUSOPS</p>
-          <ul className="products-grid" aria-label="NexusOps products">
-            {products.map(({ title, description, icon: Icon, tone }) => (
-              <li key={title} className="product-summary">
-                <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
-                <div>
-                  <h2>{title}</h2>
-                  <p>{description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="products-columns">
+            <section className="products-group" aria-labelledby={`${panelId}-product-title`}>
+              <h2 id={`${panelId}-product-title`} className="products-group-title">Product</h2>
+              <ul className="products-grid" aria-label="NexusOps products">
+                {products.map(({ title, description, icon: Icon, tone }) => (
+                  <li key={title} className="product-summary">
+                    <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
+                    <div><h3>{title}</h3><p>{description}</p></div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="products-group" aria-labelledby={`${panelId}-platform-title`}>
+              <h2 id={`${panelId}-platform-title`} className="products-group-title">Platform</h2>
+              <ul className="products-grid" aria-label="NexusOps platform capabilities">
+                {platform.map(({ title, description, icon: Icon, tone }) => (
+                  <li key={title} className="product-summary">
+                    <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
+                    <div><h3>{title}</h3><p>{description}</p></div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
         </div>
       )}
     </div>

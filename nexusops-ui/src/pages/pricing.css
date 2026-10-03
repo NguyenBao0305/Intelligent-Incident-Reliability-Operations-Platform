@@ -1,0 +1,60 @@
+.pricing-page { min-height:100svh; background:#fafcf9; color:#203b2d; font-family:'Plus Jakarta Sans',sans-serif; }
+.pricing-page a:focus-visible,.pricing-page button:focus-visible { outline:2px solid #138052; outline-offset:4px; border-radius:5px; }
+.pricing-header { position:relative; z-index:20; background:#fff; border-bottom:1px solid #e5ece6; }
+.pricing-brand { font-family:Outfit,sans-serif; font-size:29px; font-weight:600; letter-spacing:-.045em; white-space:nowrap; }
+.pricing-brand span { color:#059669; font-weight:300; }
+.pricing-nav { display:flex; align-items:center; gap:30px; font-size:15px; font-weight:500; }
+.pricing-nav>a[aria-current=page] { color:#08784d; font-weight:600; }
+.pricing-account { display:flex; align-items:center; gap:24px; font-size:15px; font-weight:600; }
+.pricing-button { display:inline-flex; align-items:center; justify-content:center; gap:12px; padding:15px 22px; border-radius:11px; background:#16754e; color:#fff; font-size:15px; font-weight:600; transition:background .18s,transform .18s; }
+.pricing-button:hover { background:#0d5e3c; transform:translateY(-1px); }
+.pricing-button-small { font-size:13px; padding:10px 16px; border-radius:24px; }
+.pricing-main { max-width:1120px; margin:0 auto; padding:60px 28px 70px; }
+.pricing-intro { text-align:center; margin-bottom:42px; }
+.pricing-eyebrow { display:inline-flex; align-items:center; gap:8px; color:#5c7c68; font-size:11px; letter-spacing:1.7px; font-weight:600; }
+.pricing-eyebrow>span { width:6px; height:6px; background:#49a77c; border-radius:50%; }
+.pricing-intro h1 { font-family:Outfit,sans-serif; font-size:clamp(36px,5vw,56px); line-height:1.15; font-weight:500; letter-spacing:-1.7px; margin:18px 0; }
+.pricing-intro h1 em { font-family:Georgia,serif; font-weight:400; color:#347b55; }
+.pricing-intro>p { color:#5c7263; font-size:16px; line-height:1.8; }
+.pricing-plan { display:grid; grid-template-columns:.85fr 1.35fr; border:1px solid #d8e6da; border-radius:24px; background:#fff; overflow:hidden; box-shadow:0 16px 50px #224e2c09; }
+.pricing-plan-summary { padding:36px; background:linear-gradient(145deg,#eef6ed,#f7faf5); border-right:1px solid #e0eade; }
+.pricing-plan-badge { display:inline-flex; align-items:center; gap:7px; color:#44805a; border:1px solid #cfdfce; border-radius:20px; padding:6px 10px; font-size:10px; letter-spacing:.8px; font-weight:600; }
+.pricing-plan-summary h2 { font-family:Outfit,sans-serif; font-size:34px; font-weight:500; margin:20px 0 8px; }
+.pricing-plan-description { font-size:14px; line-height:1.8; color:#5b7161; }
+.pricing-price { font-family:Outfit,sans-serif; font-size:72px; font-weight:500; letter-spacing:-2px; line-height:1; margin:32px 0; }
+.pricing-price span { display:block; font-family:'Plus Jakarta Sans',sans-serif; font-size:13px; letter-spacing:0; color:#647b6a; margin-top:12px; }
+.pricing-plan-summary>.pricing-button { width:100%; }
+.pricing-no-card { text-align:center; font-size:12px; color:#647b6a; margin-top:13px; }
+.pricing-invitation { border-top:1px solid #dbe7d9; margin-top:25px; padding-top:20px; font-size:12px; line-height:1.8; color:#657b6b; }
+.pricing-invitation a { color:#16754e; font-weight:600; text-decoration:underline; text-underline-offset:3px; }
+.pricing-plan-includes { padding:36px; }
+.pricing-plan-includes>h3 { font-family:Outfit,sans-serif; font-size:25px; font-weight:500; margin:9px 0; }
+.pricing-plan-scope { display:flex; align-items:center; gap:7px; font-size:12px; color:#64776a; line-height:1.7; }
+.pricing-feature-list { list-style:none; padding:0; margin:25px 0; }
+.pricing-feature-list li { display:flex; align-items:flex-start; gap:13px; margin-bottom:23px; }
+.pricing-feature-icon { display:flex; padding:9px; color:#408565; background:#eef6f0; border-radius:10px; flex-shrink:0; }
+.pricing-feature-list h4 { font-size:14px; font-weight:600; margin:0 0 5px; }
+.pricing-feature-list p { font-size:13px; line-height:1.8; color:#607769; }
+.pricing-check { color:#4a9970; flex-shrink:0; margin-left:auto; margin-top:6px; }
+.pricing-demo-note { display:flex; gap:9px; border-top:1px solid #e4ece6; padding-top:17px; font-size:12px; line-height:1.8; color:#657b6b; }
+.pricing-demo-note svg { flex-shrink:0; margin-top:3px; }
+.pricing-access { margin-top:65px; }
+.pricing-section-heading { text-align:center; max-width:650px; margin:0 auto 28px; }
+.pricing-section-heading h2 { font-family:Outfit,sans-serif; font-size:31px; font-weight:500; letter-spacing:-.6px; margin:12px 0; }
+.pricing-section-heading p { font-size:14px; color:#607769; line-height:1.8; }
+.pricing-role-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.pricing-role { padding:24px; background:#fff; border:1px solid #e0e9e2; border-radius:16px; }
+.pricing-role-featured { border-color:#a8cdb4; background:#f5faf5; }
+.pricing-role-heading { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px; }
+.pricing-role-heading h3 { font-family:Outfit,sans-serif; font-size:21px; font-weight:500; }
+.pricing-role-heading span { font-size:10px; color:#38764e; background:#e7f3e9; border:1px solid #d2e7d7; border-radius:20px; padding:4px 8px; }
+.pricing-role>p { font-size:13px; line-height:1.8; color:#5e7566; }
+.pricing-role .pricing-role-scope { display:flex; align-items:flex-start; gap:7px; margin-top:15px; font-size:12px; color:#476c53; }
+.pricing-role-scope svg { flex-shrink:0; margin-top:3px; }
+.pricing-role-note { max-width:850px; margin:22px auto 0; text-align:center; font-size:12px; line-height:1.8; color:#677d6d; }
+.pricing-footer { display:flex; align-items:center; gap:24px; padding:26px clamp(24px,3.5vw,48px); border-top:1px solid #e0e9e1; background:#fff; }
+.pricing-footer>span { color:#687d6e; font-size:12px; }
+.pricing-footer>a:last-child { margin-left:auto; display:flex; align-items:center; gap:8px; color:#347b55; font-size:13px; }
+@media(max-width:800px) { .pricing-plan { grid-template-columns:1fr; }.pricing-plan-summary { border-right:0; border-bottom:1px solid #e0eade; }.pricing-role-grid { grid-template-columns:1fr; }.pricing-main { padding:40px 20px; }.pricing-nav { gap:20px; }.pricing-account { gap:14px; }.pricing-account .pricing-button { display:none; } }
+@media(max-width:639px) { .pricing-nav { grid-row:2; grid-column:1/-1; }.pricing-main { padding:32px 16px; }.pricing-plan-summary,.pricing-plan-includes { padding:26px 22px; }.pricing-footer { flex-wrap:wrap; gap:12px; }.pricing-footer>span { display:none; }.pricing-intro>p { font-size:14px; }.pricing-section-heading h2 { font-size:27px; } }
+@media(prefers-reduced-motion:reduce) { .pricing-button { transition:none; }.pricing-button:hover { transform:none; } }

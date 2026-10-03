@@ -3,9 +3,11 @@ import { AuthPage } from './pages/AuthPage';
 import { ResponderDashboard } from './features/responder/ResponderDashboard';
 import { hasDemoSession, setDemoSession } from './demo/auth';
 import { ProductsMenu } from './components/ProductsMenu';
+import { SolutionsMenu } from './components/SolutionsMenu';
+import { ResourcesMenu } from './components/ResourcesMenu';
+import { PricingPage } from './pages/PricingPage';
 import './motion.css';
 import { 
-  ChevronDown, 
   Search, 
   ArrowRight, 
   X, 
@@ -99,20 +101,14 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
           {/* Navigation Links */}
           <nav aria-label="Main navigation" className="landing-nav flex items-center gap-8 text-[15px] font-medium text-slate-600">
             <ProductsMenu />
+            <SolutionsMenu />
             <div className="hidden lg:flex items-center gap-8">
-            <button className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer">
-              Solutions <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
+              <a href="#customers" className="hover:text-emerald-700 transition">Customer</a>
+              <ResourcesMenu />
+            </div>
             <a href="#pricing" className="hover:text-emerald-700 transition">
               Pricing
             </a>
-            <button className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer">
-              Company <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-            <button className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer">
-              Resources <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-            </div>
           </nav>
 
         {/* Right: Contact Us, Login, Sign Up */}
@@ -242,7 +238,7 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
       {/* ========================================================================= */}
       {/* 4. PHẦN PLACEHOLDER REVIEW (CUSTOMER TESTIMONIALS & TRUST SECTION)        */}
       {/* ========================================================================= */}
-      <section className="bg-slate-50/70 border-t border-slate-200/80 py-24 px-4 sm:px-6 relative overflow-hidden">
+      <section id="customers" className="scroll-mt-24 bg-slate-50/70 border-t border-slate-200/80 py-24 px-4 sm:px-6 relative overflow-hidden">
         
         {/* Subtle decorative glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[350px] bg-emerald-100/40 blur-[130px] rounded-full pointer-events-none"></div>
@@ -361,20 +357,28 @@ export function App() {
   useEffect(() => {
     const navigate = () => {
       setHash(window.location.hash);
-      window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', navigate);
     return () => window.removeEventListener('hashchange', navigate);
   }, []);
 
+  useEffect(() => {
+    if (hash === '#customers') {
+      requestAnimationFrame(() => document.getElementById('customers')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    window.scrollTo(0, 0);
+  }, [hash]);
+
   const workspace = hash === '#workspace';
+  const pricing = hash === '#pricing';
   const mode = hash === '#login' || (workspace && !authenticated) ? 'login' : hash === '#signup' ? 'signup' : null;
 
   useEffect(() => {
-    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
-  }, [mode, workspace, authenticated]);
+    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
+  }, [mode, workspace, authenticated, pricing]);
 
-  return <div key={mode ?? (workspace ? 'workspace' : 'home')} className="page-transition">{workspace && authenticated ? <ResponderDashboard onLogout={() => {
+  return <div key={mode ?? (workspace ? 'workspace' : pricing ? 'pricing' : 'home')} className="page-transition">{pricing ? <PricingPage /> : workspace && authenticated ? <ResponderDashboard onLogout={() => {
     setDemoSession(false);
     setAuthenticated(false);
     window.location.hash = 'login';

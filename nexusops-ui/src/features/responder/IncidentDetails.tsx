@@ -5,6 +5,7 @@ import { statusLabels } from './model';
 
 interface Props {
   incident: Incident;
+  canManage: boolean;
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: (reason: string) => void;
@@ -12,7 +13,7 @@ interface Props {
 }
 const timestamp = (at: number) => new Date(at).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-export function IncidentDetails({ incident, onClose, onAcknowledge, onResolve, onNote }: Props) {
+export function IncidentDetails({ incident, canManage, onClose, onAcknowledge, onResolve, onNote }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
@@ -27,13 +28,14 @@ export function IncidentDetails({ incident, onClose, onAcknowledge, onResolve, o
       <div className="ws-drawer-content">
         <div className="ws-badges"><span className={`ws-status ws-status-${incident.status.toLowerCase()}`}>{statusLabels[incident.status]}</span><span className={`ws-priority ws-${incident.priority.toLowerCase()}`}>{incident.priority}</span><span className="ws-muted">Demo incident</span></div>
         <h2 id="incident-detail-title">{incident.title}</h2>
-        <div className="ws-detail-meta"><span><Server size={15} />{incident.service}</span><span><span className="ws-avatar ws-avatar-small">LN</span>Linh Nguyen · You</span></div>
+        <div className="ws-detail-meta"><span><Server size={15} />{incident.service}</span><span><span className="ws-avatar ws-avatar-small">{incident.assignedName.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>{incident.assignedName}{canManage ? ' · You' : ''}</span></div>
         <div className="ws-detail-actions">
-          {incident.status === 'TRIGGERED' && <button className="ws-button ws-button-primary" onClick={onAcknowledge}><Check size={16} />Acknowledge incident</button>}
-          {incident.status === 'ACKNOWLEDGED' && <button className="ws-button ws-button-primary" onClick={() => setResolving(!resolving)} aria-expanded={resolving} aria-controls="resolve-form"><CheckCheck size={16} />Resolve incident</button>}
+          {incident.status === 'TRIGGERED' && canManage && <button className="ws-button ws-button-primary" onClick={onAcknowledge}><Check size={16} />Acknowledge incident</button>}
+          {incident.status === 'ACKNOWLEDGED' && canManage && <button className="ws-button ws-button-primary" onClick={() => setResolving(!resolving)} aria-expanded={resolving} aria-controls="resolve-form"><CheckCheck size={16} />Resolve incident</button>}
           {incident.status === 'RESOLVED' && <span className="ws-resolved-note"><CheckCheck size={17} /> All linked alerts are closed.</span>}
+          {!canManage && incident.status !== 'RESOLVED' && <span className="ws-readonly-note"><ShieldCheck size={16} />Read-only · assigned to {incident.assignedName}</span>}
         </div>
-        {incident.status === 'TRIGGERED' && <p className="ws-field-hint">Acknowledge before manually resolving this incident.</p>}
+        {canManage && incident.status === 'TRIGGERED' && <p className="ws-field-hint">Acknowledge before manually resolving this incident.</p>}
         {resolving && incident.status === 'ACKNOWLEDGED' && <form id="resolve-form" className="ws-resolve-form" onSubmit={event => {
           event.preventDefault();
           if (!reason.trim()) { setReasonError('Add a resolution reason before continuing.'); return; }
@@ -56,10 +58,10 @@ export function IncidentDetails({ incident, onClose, onAcknowledge, onResolve, o
         </section>
         <section className="ws-detail-section"><h3><Clock3 size={16} /> Timeline & notes</h3>
           <ol className="ws-timeline">{incident.timeline.map(entry => <li key={entry.id}><span className={`ws-timeline-icon is-${entry.kind}`}>{entry.kind === 'note' ? <MessageSquare size={13} /> : <Check size={13} />}</span><div><p>{entry.text}</p><time dateTime={new Date(entry.at).toISOString()}>{timestamp(entry.at)}{entry.kind === 'note' ? ' · Linh Nguyen' : ''}</time></div></li>)}</ol>
-          <form className="ws-note-form" onSubmit={event => { event.preventDefault(); if (note.trim()) { onNote(note); setNote(''); } }}>
+          {canManage ? <form className="ws-note-form" onSubmit={event => { event.preventDefault(); if (note.trim()) { onNote(note); setNote(''); } }}>
             <label htmlFor="incident-note">Add a team note</label><textarea id="incident-note" value={note} onChange={event => setNote(event.target.value)} maxLength={1000} rows={3} placeholder="Share findings, evidence or next steps…" />
             <div className="ws-form-buttons"><span className="ws-field-hint">{note.length}/1000</span><button className="ws-button" type="submit" disabled={!note.trim()}><Send size={14} />Add note</button></div>
-          </form>
+          </form> : <p className="ws-readonly-note"><ShieldCheck size={15} />Only the assigned responder can add a note in this demo.</p>}
         </section>
         <p className="ws-detail-footnote"><ShieldCheck size={16} /> Demo changes are local. AI investigation, automation and backend processing are not connected.</p>
       </div>

@@ -59,3 +59,12 @@
 @media(max-width:1250px) { .ws-header nav { order:3; width:100%; overflow-x:auto; min-height:52px; }.ws-header { padding-top:12px; gap:8px 20px; } }
 @media(max-width:800px) { .wp-grid,.wp-two,.wp-profile-layout { grid-template-columns:1fr; }.wp-profile-fields { grid-template-columns:1fr; }.wp-intro { align-items:flex-start; flex-wrap:wrap; }.wp-intro>.wp-tag { margin-left:0; }.wp-card { padding:20px; }.wp-facts { grid-template-columns:1fr; }.wp-field input,.wp-field select { font-size:16px; } }
 @media(prefers-reduced-motion:reduce) { .wp-pages { animation:none; }.wp-service:hover { transform:none; } }
+
+/* Keep content pages aligned with the clearer workspace typography. */
+.wp-intro p,.wp-card p,.wp-callout,.wp-steps,.wp-field,.wp-link,.wp-card summary { color:#405b49; }
+.wp-intro p,.wp-card p,.wp-callout,.wp-steps,.wp-field,.wp-link,.wp-card summary { font-size:15px; }
+.wp-tag,.wp-facts span,.wp-avatar-editor p,.wp-team-identity span { color:#536c5a; font-size:13px; }
+.wp-facts strong,.wp-avatar-editor strong,.wp-team-identity strong { color:#2f4737; font-size:15px; }
+.wp-service strong { font-size:14px; }
+.wp-upload,.wp-remove-photo { font-size:14px; }
+.wp-search,.wp-field input,.wp-field select { color:#2f4737; }

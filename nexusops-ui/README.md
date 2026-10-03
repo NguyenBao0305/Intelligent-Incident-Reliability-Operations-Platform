@@ -1,95 +1,77 @@
 # NexusOps UI
 
-React + TypeScript + Vite frontend with a public landing page and authentication UI.
+Frontend React + TypeScript + Vite cho NexusOps. Gồm landing page, Login/Sign Up và workspace Responder sử dụng dữ liệu mẫu.
 
-- `/#login`: email/password login, password visibility, field validation and access help.
-- `/#signup`: invitation-based registration with name, invited email, invitation code and password confirmation.
-- Landing page navigation opens these screens; the hero email form carries the email into registration.
+Xem [README dự án](../README.md) để đọc tổng quan, chức năng Products/Solutions/Customer/Resources, Pricing, thuật ngữ giao diện và trạng thái MVP. Tài liệu này tập trung vào cách chạy và tổ chức mã frontend.
 
-Run `npm install` then `npm run dev`. Use `npm run build` for a production build and `npm run lint` for lint checks.
+## Chạy ứng dụng
 
-Login accepts the public demo account `responder@nexusops.demo` / `NexusOps@2026` and opens `/#workspace`. The “Use demo account” button fills these fields. Only a demo marker is stored in sessionStorage; entered passwords are not persisted. Logout clears the marker. This frontend guard is not production authentication or authorization.
+Từ thư mục `nexusops-ui`:
 
-The Responder workspace includes assigned incident filters, bulk/single ACK, incident details, required-reason resolution after ACK, linked alert closure, timeline notes and a notification inbox. Reading a notification does not acknowledge its incident. Static on-call and escalation information is illustrative; no live timers or paging run. Incident and inbox changes reset on unmount/reload; “Reset sample data” also restores fixtures. Implementation lives in `src/features/responder/`, with demo login in `src/demo/auth.ts`.
-
-Signup remains a UI preview: it does not validate invitations or create users. Backend integration must enforce invitation validity, password policy, assigned permissions and authentication. The eight-character signup check is a provisional UI rule to align with the eventual backend policy.
-
-Workspace navigation also includes Services (read-only catalog and incident drilldown), Team (sample directory and static assignments), AI Investigation (sample evidence reports), Automation (request, approve/reject and simulated execution), and Profile (click the account avatar). These views live in `WorkspacePages.tsx`. Profile edits include avatar upload (PNG/JPG/WebP, up to 2 MB), display name, title, department, phone, location and timezone. The profile shows team, escalation assignment and MVP permissions; email, role and password remain admin-managed. Changes survive tab switches but reset when leaving/reloading the workspace. Investigation snapshots and action histories have the same lifecycle; incident/inbox reset does not clear those histories. All actions require approval in the demo; resolved incidents block further decisions/execution. AI model calls, execution adapters, server authorization, quota/breaker enforcement, PIR, backend APIs and database integration remain unimplemented. The preferred timezone is stored only as a local preference; incident timestamps use browser time.
-
-Authentication components and styles live in `src/pages/AuthPage.tsx` and `src/pages/auth.css`. Hash navigation is managed in `src/App.tsx` and supports direct links and browser history without server rewrite configuration.
-
-## React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Mở địa chỉ Vite in trong terminal. Các lệnh khác:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Lệnh | Tác dụng |
+|---|---|
+| `npm run build` | Kiểm tra TypeScript và tạo bản build vào `dist/` |
+| `npm run lint` | Kiểm tra ESLint |
+| `npm run preview` | Phục vụ bản build đã tạo để xem trước |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Điều hướng và tài khoản demo
 
-```
+| Đường dẫn | Màn hình |
+|---|---|
+| `/` | Landing page với dropdown Products, Solutions, Resources; Customer là liên kết thường; Pricing ở cuối thanh điều hướng |
+| `/#pricing` | Gói Free, chức năng và quyền; CTA đến Login/Sign Up |
+| `/#login` | Đăng nhập demo Responder |
+| `/#signup` | Form tạo tài khoản theo lời mời, hiện là preview |
+| `/#workspace` | Workspace; hiển thị Login nếu chưa có dấu hiệu phiên demo |
+
+- Email: `responder@nexusops.demo`
+- Mật khẩu: `NexusOps@2026`
+- Nút **Use demo account** điền nhanh thông tin; bấm **Log in** để vào workspace.
+
+Các mục Incidents, Inbox, Services, People, AI Investigation, Automation và Profile được điều khiển bằng state trong workspace. People gồm Members/Teams, tìm kiếm, bộ lọc, hồ sơ thành viên và incident được giao. Chúng chưa có URL riêng; Back/Forward của trình duyệt chỉ theo lịch sử hash cấp trang.
+
+## Cấu trúc mã nguồn
+
+| Đường dẫn | Trách nhiệm |
+|---|---|
+| `src/App.tsx` | Landing page, điều hướng hash và cổng vào phiên demo |
+| `src/components/ProductsMenu.tsx` | Dropdown giới thiệu Product/Platform |
+| `src/components/SolutionsMenu.tsx` | Dropdown tình huống, vấn đề và cách hỗ trợ |
+| `src/components/ResourcesMenu.tsx` | Mega menu Documentation/Guides/Resources với mô tả mở rộng |
+| `src/pages/PricingPage.tsx` | Trang Pricing một gói Free và mô tả quyền theo MVP |
+| `src/pages/AuthPage.tsx` | Login/Sign Up, kiểm tra form và hỗ trợ nhập mật khẩu |
+| `src/demo/auth.ts` | Tài khoản mẫu và dấu hiệu phiên demo trong `sessionStorage` |
+| `src/features/responder/ResponderDashboard.tsx` | Danh sách incident, bộ lọc, inbox và điều hướng workspace |
+| `src/features/responder/IncidentDetails.tsx` | Bảng chi tiết, ACK, Resolve và ghi chú |
+| `src/features/responder/WorkspacePages.tsx` | Services, People, AI, Automation và Profile |
+| `src/features/responder/PeoplePage.tsx` | Danh bạ Members/Teams, tìm kiếm, lọc và chi tiết thành viên theo phạm vi team mẫu |
+| `src/features/responder/OnboardingPage.tsx` | Checklist sáu bước và màn hình cấu hình/thử nghiệm dành cho Responder |
+| `src/features/responder/SchedulePage.tsx` | Lịch tuần, form tạo/sửa/xóa ca và hiệu ứng CSS 3D |
+| `src/features/responder/schedule.ts` | Timestamp/múi giờ, kiểm tra thời lượng và chồng ca, điều kiện hoàn thành onboarding |
+| `src/features/responder/onboarding.ts` | Tính tiến độ setup từ xác nhận, thông báo đã đọc và vòng đời incident thử |
+| `src/features/responder/model.ts` | Fixture incident/inbox và reducer cập nhật trạng thái |
+| `src/features/responder/workspace-types.ts` | Kiểu dữ liệu profile và các mục điều hướng |
+| `src/motion.css` | Hiệu ứng chuyển trang, hover/click và reduced motion |
+
+CSS của các component/trang được đặt cạnh file tương ứng. Giao diện dùng Tailwind CSS và icon Lucide React.
+
+## Hành vi của demo
+
+**Incident:** Assigned to me gồm sáu incident của tài khoản hiện tại; All gồm chín incident mẫu trong team. Incident giao cho đồng đội chỉ đọc. ACK chỉ dành cho incident Triggered được giao cho mình; Resolve yêu cầu đã ACK và có lý do. Đọc thông báo không thực hiện ACK.
+
+**AI và Automation:** báo cáo được tạo từ alert mẫu; action yêu cầu approve/reject trước khi mô phỏng thực thi. Incident đã Resolve chặn quyết định/thực thi tiếp. Không gọi model, retrieval, lệnh hệ thống hay hạ tầng bên ngoài.
+
+**Profile:** cho sửa tên, chức danh, phòng ban, số điện thoại, địa điểm, tùy chọn múi giờ và ảnh PNG/JPG/WebP tối đa 2 MB. Email/role không sửa được. Múi giờ là tùy chọn demo; timestamp vẫn theo trình duyệt.
+
+**Dữ liệu:** state giữ nguyên khi chuyển mục trong workspace; rời workspace hoặc tải lại trang sẽ reset. Reset sample data chỉ khôi phục incident/inbox, giữ báo cáo AI, action và profile đang có.
+
+**Xác thực:** `sessionStorage` chỉ lưu dấu hiệu phiên demo, không lưu mật khẩu được nhập. Logout xóa dấu hiệu này. Signup chỉ kiểm tra form; chưa xác minh invitation hoặc tạo tài khoản. Kiểm tra mật khẩu tám ký tự là quy tắc UI tạm thời.
+
+Khi nối backend, cần thay fixture và guard demo bằng API kiểm tra xác thực, quyền đọc, team/service/incident scope, điều kiện chuyển trạng thái và giới hạn automation. Dữ liệu mẫu và kiểm tra phía frontend hiện chỉ phục vụ trình diễn.
