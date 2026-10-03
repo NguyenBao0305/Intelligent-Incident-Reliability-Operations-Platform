@@ -28,10 +28,15 @@ const products = [
     tone: 'blue',
   },
 ];
-const productRoutes: Record<string, string> = {
+const linkedRoutes: Record<string, string> = {
   'Incident Management': '#product-incident-management',
   'On-call & Escalation': '#product-on-call-escalation',
   'AI Investigation & Automation': '#product-ai-automation',
+  'Post-Incident Review & Insights': '#product-post-incident-insights',
+  'Service Catalog': '#platform-service-catalog',
+  'Monitoring Integrations': '#platform-monitoring-integrations',
+  'Policies & Permissions': '#platform-policies-permissions',
+  'Audit Trail': '#platform-audit-trail',
 };
 
 const platform = [
@@ -83,8 +88,8 @@ export function ProductsMenu() {
               <h2 id={`${panelId}-product-title`} className="products-group-title">Product</h2>
               <ul className="products-grid" aria-label="NexusOps products">
                 {products.map(({ title, description, icon: Icon, tone }) => (
-                  <li key={title} className={`product-summary${productRoutes[title] ? ' product-summary-linked' : ''}`}>
-                    {productRoutes[title] ? <a className="product-summary-link" href={productRoutes[title]} onClick={() => setOpen(false)}>
+                  <li key={title} className={`product-summary${linkedRoutes[title] ? ' product-summary-linked' : ''}`}>
+                    {linkedRoutes[title] ? <a className="product-summary-link" href={linkedRoutes[title]} onClick={() => setOpen(false)}>
                       <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
                       <div><span className="product-title-link">{title}<ArrowRight size={15} aria-hidden="true" /></span><p>{description}</p></div>
                     </a> : <>
@@ -99,9 +104,11 @@ export function ProductsMenu() {
               <h2 id={`${panelId}-platform-title`} className="products-group-title">Platform</h2>
               <ul className="products-grid" aria-label="NexusOps platform capabilities">
                 {platform.map(({ title, description, icon: Icon, tone }) => (
-                  <li key={title} className="product-summary">
-                    <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
-                    <div><h3>{title}</h3><p>{description}</p></div>
+                  <li key={title} className="product-summary product-summary-linked">
+                    <a className="product-summary-link" href={linkedRoutes[title]} onClick={() => setOpen(false)}>
+                      <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
+                      <div><span className="product-title-link">{title}<ArrowRight size={15} aria-hidden="true" /></span><p>{description}</p></div>
+                    </a>
                   </li>
                 ))}
               </ul>

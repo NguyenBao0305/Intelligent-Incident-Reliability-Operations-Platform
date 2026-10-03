@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, InputHTMLAttributes } from 'react';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, Activity, ShieldCheck, KeyRound, Info, Mail } from 'lucide-react';
 import './auth.css';
-import { acceptsDemoCredentials, DEMO_ACCOUNT } from '../demo/auth';
+import { acceptInvitation, login, demoUsers, DEMO_PASSWORD } from '../features/access/store';
+import { roleLabels } from '../features/access/policy';
 
 type Mode = 'login' | 'signup';
 type FieldName = 'name' | 'email' | 'invitation' | 'password' | 'confirm';
@@ -31,6 +32,9 @@ function Field({ label, error, hint, ...props }: InputHTMLAttributes<HTMLInputEl
 
 export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; initialEmail: string; onDemoLogin: () => void }) {
   const signup = mode === 'signup';
+  const [demoId, setDemoId] = useState('responder-demo');
+  const demo = demoUsers.find(user => user.id === demoId)!;
+  const [busy, setBusy] = useState(false);
   const [fields, setFields] = useState<Fields>({ name: '', email: initialEmail, invitation: '', password: '', confirm: '' });
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -48,7 +52,7 @@ export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; init
     setCredentialError('');
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next: Errors = {};
     if (!fields.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) next.email = 'Enter a valid email address.';
@@ -60,10 +64,14 @@ export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; init
       if (!fields.confirm || fields.confirm !== fields.password) next.confirm = 'Your passwords must match.';
     }
     setErrors(next);
-    setSubmitted(signup && Object.keys(next).length === 0);
-    if (!signup && Object.keys(next).length === 0) {
-      if (acceptsDemoCredentials(fields.email, fields.password)) onDemoLogin();
-      else setCredentialError('Use the demo email and password shown above. Live authentication is not connected yet.');
+    setSubmitted(false);
+    if (Object.keys(next).length === 0 && !busy) {
+      setBusy(true); setCredentialError('');
+      try {
+        if (signup) { await acceptInvitation(fields.email, fields.invitation, fields.name, fields.password); setSubmitted(true); }
+        else { await login(fields.email, fields.password); onDemoLogin(); }
+      } catch (error) { setCredentialError(error instanceof Error ? error.message : 'Could not complete this request.'); }
+      finally { setBusy(false); }
     }
     const first = (signup ? ['name', 'email', 'invitation', 'password', 'confirm'] : ['email', 'password']).find(key => next[key as FieldName]);
     if (first) form.current?.querySelector<HTMLInputElement>(`[name="${first}"]`)?.focus();
@@ -105,10 +113,10 @@ export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; init
           <p className="auth-description">{signup ? 'Create your account with an invitation from your NexusOps administrator.' : 'Log in to your NexusOps workspace.'}</p>
 
           {!signup && <div className="auth-demo-account">
-            <div><strong>Explore as a Responder</strong><span>Sample workspace · frontend demo</span></div>
-            <p>Email: <code>{DEMO_ACCOUNT.email}</code><br />Password: <code>{DEMO_ACCOUNT.password}</code></p>
+            <div><strong>Explore a workspace role</strong><span>Sample workspace · frontend demo</span></div>
+            <label>Demo account<select aria-label="Demo account" value={demoId} onChange={event => setDemoId(event.target.value)}>{demoUsers.slice(0, 5).map(user => <option key={user.id} value={user.id}>{user.id === 'commander-demo' ? 'Manager + Responder · Commander on #1048' : user.roles.map(role => roleLabels[role]).join(' + ')}</option>)}</select></label><p>Email: <code>{demo.email}</code><br />Password: <code>{DEMO_PASSWORD}</code></p>
             <button type="button" onClick={() => {
-              setFields(previous => ({ ...previous, email: DEMO_ACCOUNT.email, password: DEMO_ACCOUNT.password }));
+              setFields(previous => ({ ...previous, email: demo.email, password: DEMO_PASSWORD }));
               setErrors({}); setCredentialError('');
             }}>Use demo account <ArrowRight size={15} /></button>
           </div>}
@@ -121,12 +129,12 @@ export function AuthPage({ mode, initialEmail, onDemoLogin }: { mode: Mode; init
             {!signup && <div className="auth-form-options"><span><ShieldCheck size={14} /> Your team workspace</span><button type="button" onClick={() => setHelp(!help)} aria-expanded={help} aria-controls="auth-help">Need help signing in?</button></div>}
             {help && <p id="auth-help" className="auth-help">Contact your workspace administrator if you need to recover access or receive a new invitation.</p>}
             {credentialError && <p className="auth-error" role="alert">{credentialError}</p>}
-            <button className="auth-submit" type="submit">{signup ? 'Create account' : 'Log in'} <ArrowRight size={17} /></button>
-            {submitted && <div className="auth-feedback" role="status"><Info size={18} /><p><strong>Form ready for connection</strong>{signup ? 'Your account has not been created. Invitation verification and registration will be available when authentication is connected.' : 'You are viewing a UI preview. Authentication is not connected yet, so no sign-in session has been created.'}</p></div>}
+            <button className="auth-submit" type="submit" disabled={busy || submitted}>{busy ? 'Please wait…' : signup ? 'Create account' : 'Log in'} <ArrowRight size={17} /></button>
+            {submitted && <div className="auth-feedback" role="status"><Info size={18} /><p><strong>Demo account created</strong>Your invitation has been accepted on this browser. <a href="#login">Log in with your email and password.</a></p></div>}
           </form>
 
           {signup && <p className="auth-invite-note"><ShieldCheck size={16} /><span>Your administrator manages workspace access and permissions.</span></p>}
-          <div className="auth-preview-note"><span /> {signup ? 'UI preview · Authentication coming soon' : 'Demo access · No live authentication'}</div>
+          <div className="auth-preview-note"><span /> {signup ? 'Local invitation demo · No email delivery' : 'Local demo accounts · No server authentication'}</div>
         </div>
         <footer className="auth-form-footer"><span>© {new Date().getFullYear()} NexusOps</span><span>Clarity in every incident.</span></footer>
       </section>

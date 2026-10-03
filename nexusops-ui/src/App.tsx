@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AuthPage } from './pages/AuthPage';
-import { ResponderDashboard } from './features/responder/ResponderDashboard';
-import { hasDemoSession, setDemoSession } from './demo/auth';
+import { Workspace } from './features/access/Workspace';
+import { currentUser, useData, logout } from './features/access/store';
 import { ProductsMenu } from './components/ProductsMenu';
 import { SolutionsMenu } from './components/SolutionsMenu';
 import { ResourcesMenu } from './components/ResourcesMenu';
@@ -9,14 +9,25 @@ import { PricingPage } from './pages/PricingPage';
 import { IncidentManagementPage } from './pages/IncidentManagementPage';
 import { OnCallEscalationPage } from './pages/OnCallEscalationPage';
 import { AIInvestigationAutomationPage } from './pages/AIInvestigationAutomationPage';
+import { PostIncidentInsightsPage } from './pages/PostIncidentInsightsPage';
+import { PlatformCapabilityPage, type PlatformCapabilityKey } from './pages/PlatformCapabilityPage';
+import { CustomerPage } from './pages/CustomerPage';
 import './motion.css';
 import { LandingStory } from './components/LandingStory';
-import { 
+import {
   Search, 
   ArrowRight, 
   X, 
   Sparkles
 } from 'lucide-react';
+
+const platformCapabilityTitles: Record<PlatformCapabilityKey, string> = {
+  'service-catalog': 'Service Catalog',
+  'monitoring-integrations': 'Monitoring Integrations',
+  'policies-permissions': 'Policies & Permissions',
+  'audit-trail': 'Audit Trail',
+};
+const platformCapabilityKeys = Object.keys(platformCapabilityTitles) as PlatformCapabilityKey[];
 
 function LandingPage({ onStart }: { onStart: (email: string) => void }) {
   const [email, setEmail] = useState('');
@@ -208,7 +219,8 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
 export function App() {
   const [hash, setHash] = useState(window.location.hash);
   const [initialEmail, setInitialEmail] = useState('');
-  const [authenticated, setAuthenticated] = useState(hasDemoSession);
+  const data = useData();
+  const authenticated = !!currentUser(data);
 
   useEffect(() => {
     const navigate = () => {
@@ -219,31 +231,31 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (hash === '#customers' || hash === '#demo') {
+    if (hash === '#demo') {
       requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
       return;
     }
     window.scrollTo(0, 0);
   }, [hash]);
 
-  const workspace = hash === '#workspace';
+  const workspace = hash === '#workspace' || hash.startsWith('#workspace/');
   const pricing = hash === '#pricing';
+  const customerPage = hash === '#customers';
   const incidentManagement = hash === '#product-incident-management';
   const onCallEscalation = hash === '#product-on-call-escalation';
   const aiAutomation = hash === '#product-ai-automation';
+  const postIncidentInsights = hash === '#product-post-incident-insights';
+  const platformCapability = platformCapabilityKeys.find(key => hash === `#platform-${key}`);
   const mode = hash === '#login' || (workspace && !authenticated) ? 'login' : hash === '#signup' ? 'signup' : null;
 
   useEffect(() => {
-    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : incidentManagement ? 'Incident Management · NexusOps' : onCallEscalation ? 'On-call & Escalation · NexusOps' : aiAutomation ? 'AI Investigation & Automation · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
-  }, [mode, workspace, authenticated, pricing, incidentManagement, onCallEscalation, aiAutomation]);
+    document.title = workspace && authenticated ? 'Workspace · NexusOps' : incidentManagement ? 'Incident Management · NexusOps' : onCallEscalation ? 'On-call & Escalation · NexusOps' : aiAutomation ? 'AI Investigation & Automation · NexusOps' : postIncidentInsights ? 'Post-Incident Review & Insights · NexusOps' : platformCapability ? `${platformCapabilityTitles[platformCapability]} · NexusOps` : customerPage ? 'Customer · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
+  }, [mode, workspace, authenticated, pricing, customerPage, incidentManagement, onCallEscalation, aiAutomation, postIncidentInsights, platformCapability]);
 
-  return <div key={mode ?? (workspace ? 'workspace' : pricing ? 'pricing' : incidentManagement ? 'product-incident-management' : onCallEscalation ? 'product-on-call-escalation' : aiAutomation ? 'product-ai-automation' : 'home')} className="page-transition">{incidentManagement ? <IncidentManagementPage /> : onCallEscalation ? <OnCallEscalationPage /> : aiAutomation ? <AIInvestigationAutomationPage /> : pricing ? <PricingPage /> : workspace && authenticated ? <ResponderDashboard onLogout={() => {
-    setDemoSession(false);
-    setAuthenticated(false);
+  return <div key={mode ?? (workspace ? 'workspace' : customerPage ? 'customers' : pricing ? 'pricing' : incidentManagement ? 'product-incident-management' : onCallEscalation ? 'product-on-call-escalation' : aiAutomation ? 'product-ai-automation' : postIncidentInsights ? 'product-post-incident-insights' : platformCapability ? `platform-${platformCapability}` : 'home')} className="page-transition">{incidentManagement ? <IncidentManagementPage /> : onCallEscalation ? <OnCallEscalationPage /> : aiAutomation ? <AIInvestigationAutomationPage /> : postIncidentInsights ? <PostIncidentInsightsPage /> : platformCapability ? <PlatformCapabilityPage capability={platformCapability} /> : customerPage ? <CustomerPage /> : pricing ? <PricingPage /> : workspace && authenticated ? <Workspace onLogout={() => {
+    logout();
     window.location.hash = 'login';
   }} /> : mode ? <AuthPage mode={mode} initialEmail={initialEmail} onDemoLogin={() => {
-    setDemoSession(true);
-    setAuthenticated(true);
     window.location.hash = 'workspace';
   }} /> : (
     <LandingPage onStart={(email) => {
