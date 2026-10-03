@@ -252,6 +252,17 @@
 .ws-assignee { display:flex; align-items:center; gap:8px; min-width:115px; color:#52675a; font-size:13px; white-space:nowrap; }
 .ws-assignee.is-me { color:#28784e; font-weight:600; }
 .ws-readonly-note { display:flex; align-items:center; gap:8px; color:#536e5c; font-size:14px; margin:8px 0; }
+
+.ws-bell { overflow:visible; }
+.ws-bell.has-unread { color:#28794f; background:#edf6ef; }
+.ws-bell.has-unread::before { position:absolute; content:''; inset:2px; z-index:0; border:1px solid #6eaf82; border-radius:8px; opacity:0; animation:ws-inbox-ring 2.8s ease-out infinite; }
+.ws-bell svg { position:relative; z-index:1; }
+.ws-bell.has-unread svg { transform-origin:50% 15%; animation:ws-bell-nudge 3.4s ease-in-out infinite; }
+.ws-bell-count { position:absolute; top:-6px; right:-7px; z-index:2; display:flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border:2px solid #fff; border-radius:99px; background:#d97863; color:#fff; font-size:10px; line-height:1; font-weight:700; box-shadow:0 2px 5px #6c33252a; }
+.ws-brand { padding:0; border:0; background:transparent; cursor:pointer; }
+@keyframes ws-inbox-ring { 0% { transform:scale(.9); opacity:.55; } 75%,100% { transform:scale(1.65); opacity:0; } }
+@keyframes ws-bell-nudge { 0%,84%,100% { transform:rotate(0); } 87% { transform:rotate(10deg); } 90% { transform:rotate(-9deg); } 93% { transform:rotate(5deg); } 96% { transform:rotate(-3deg); } }
+@media(prefers-reduced-motion:reduce) { .ws-bell.has-unread::before,.ws-bell.has-unread svg { animation:none; } }
 @media(max-width:1199px) { .ws-onboarding-bar { padding-inline:24px; }.ws-onboarding-panel { padding-inline:24px; }.ws-onboarding-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:639px) { .ws-onboarding-bar { padding:9px 16px; align-items:flex-start; flex-wrap:wrap; gap:10px; }.ws-onboarding-message { align-items:flex-start; font-size:12px; line-height:1.55; }.ws-onboarding-icon { flex-shrink:0; }.ws-onboarding-button { margin-left:38px; }.ws-onboarding-panel { padding:18px 16px 20px; }.ws-onboarding-panel-heading { align-items:flex-start; flex-direction:column; gap:10px; }.ws-onboarding-panel-heading h2 { font-size:19px; }.ws-onboarding-list { grid-template-columns:1fr; margin-top:12px; } }
 @media(max-width:639px) { .ws-assignment-row { align-items:flex-start; padding:12px 14px; }.ws-assignment-hint { flex-basis:100%; }.ws-assignment-toggle button { padding:8px 10px; } }

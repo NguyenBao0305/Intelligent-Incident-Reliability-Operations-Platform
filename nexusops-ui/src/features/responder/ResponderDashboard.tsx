@@ -6,11 +6,16 @@ import type { IncidentStatus, Priority } from './model';
 import { IncidentDetails } from './IncidentDetails';
 import './responder.css';
 import { SchedulePage } from './SchedulePage';
-import { hasPersonalCoverage } from './schedule';
+import { hasPersonalCoverage, initialScheduleInfo } from './schedule';
 import type { Shift } from './schedule';
 import { OnboardingPage } from './OnboardingPage';
 import { initialSetup, setupCompletion, setupSteps } from './onboarding';
 import { WorkspacePages } from './WorkspacePages';
+import { EscalationPage } from './EscalationPage';
+import { createEscalationPolicies } from './escalation';
+import { SystemPages } from './SystemPages';
+import { initialIntegration } from './system-config';
+import type { IntegrationConfig } from './system-config';
 import { pageTitles } from './workspace-types';
 import type { WorkspaceView, Profile } from './workspace-types';
 
@@ -38,6 +43,10 @@ export function ResponderDashboard({ onLogout }: { onLogout: () => void }) {
   const [now, setNow] = useState(() => Date.now());
   const [setup, setSetup] = useState(initialSetup);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [scheduleInfo, setScheduleInfo] = useState(initialScheduleInfo);
+  const [escalationPolicies, setEscalationPolicies] = useState(createEscalationPolicies);
+  const [escalationEpoch, setEscalationEpoch] = useState(0);
+  const [integration, setIntegration] = useState<IntegrationConfig>(initialIntegration);
 
   const selectAll = useRef<HTMLInputElement>(null);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
@@ -87,18 +96,17 @@ export function ResponderDashboard({ onLogout }: { onLogout: () => void }) {
       <button className="ws-onboarding-button" onClick={() => setView('setup')}>Complete onboarding <ChevronRight size={15} /></button>
     </div>}
     <header className="ws-header">
-      <a href="#" className="ws-brand" aria-label="NexusOps public home">Nexus<span>Ops</span></a>
+      <button type="button" className="ws-brand" aria-label="Go to responder workspace home" onClick={() => { setView('incidents'); setAssignmentScope('mine'); resetFilters(); setSelectedId(null); }}>Nexus<span>Ops</span></button>
       <nav aria-label="Workspace navigation">
         <button aria-current={view === 'incidents' ? 'page' : undefined} onClick={() => setView('incidents')}><Activity size={17} />Incidents</button>
-        <button aria-current={view === 'inbox' ? 'page' : undefined} onClick={() => setView('inbox')}><Inbox size={17} />Inbox{unread > 0 && <span className="ws-nav-count">{unread}</span>}</button>
-        {(['services', 'team', 'ai', 'automation'] as const).map(item => <button key={item} aria-current={view === item ? 'page' : undefined} onClick={() => setView(item)}>{({services: 'Services', team: 'People', ai: 'AI Investigation', automation: 'Automation'})[item]}</button>)}
+        {(['services', 'team', 'status', 'integrations', 'analytics', 'automation'] as const).map(item => <button key={item} aria-current={view === item || (item === 'team' && (view === 'escalation' || view === 'schedule')) ? 'page' : undefined} onClick={() => setView(item)}>{({services: 'Services', team: 'People', status: 'Status', integrations: 'Integrations', analytics: 'Analytics', automation: 'Automation'})[item]}</button>)}
       </nav>
-      <div className="ws-header-account"><span className="ws-team-label"><Users size={15} />{DEMO_ACCOUNT.team}</span><button className="ws-icon-button ws-bell" aria-label={`Open inbox, ${unread} unread notifications`} onClick={() => setView('inbox')}><Bell size={19} />{unread > 0 && <i />}</button><button className="ws-user" onClick={() => setView('profile')} aria-label="Open your profile" title="Open your profile" aria-current={view === 'profile' ? 'page' : undefined}>{profile.avatar ? <img className="ws-avatar ws-avatar-photo" src={profile.avatar} alt="" /> : <span className="ws-avatar">{profile.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><strong>{profile.name}</strong><small>Responder</small></div></button><button className="ws-icon-button" onClick={onLogout} aria-label="Log out" title="Log out"><LogOut size={18} /></button></div>
+      <div className="ws-header-account"><span className="ws-team-label"><Users size={15} />{DEMO_ACCOUNT.team}</span><button className={`ws-icon-button ws-bell ${unread > 0 ? 'has-unread' : ''}`} aria-label={`Open inbox, ${unread} unread notifications`} title={unread ? `${unread} unread notifications` : 'Open inbox'} onClick={() => setView('inbox')}><Bell size={19} />{unread > 0 && <span className="ws-bell-count">{unread > 99 ? '99+' : unread}</span>}</button><button className="ws-user" onClick={() => setView('profile')} aria-label="Open your profile" title="Open your profile" aria-current={view === 'profile' ? 'page' : undefined}>{profile.avatar ? <img className="ws-avatar ws-avatar-photo" src={profile.avatar} alt="" /> : <span className="ws-avatar">{profile.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><strong>{profile.name}</strong><small>Responder</small></div></button><button className="ws-icon-button" onClick={onLogout} aria-label="Log out" title="Log out"><LogOut size={18} /></button></div>
     </header>
 
     <main className="ws-main">
       <div className="ws-breadcrumb">Workspace <ChevronRight size={13} /><span>{pageTitles[view]}</span></div>
-      <div className="ws-heading"><div><div className="ws-kicker">YOUR RESPONSE WORKSPACE</div><h1>{pageTitles[view]}</h1><p>{view === 'incidents' ? 'A clear view of what needs your attention, and what’s already in progress.' : view === 'inbox' ? 'Updates for your incidents. Reading a notification does not acknowledge an incident.' : 'Your services, people and response tools, connected in one workspace.'}</p></div><span className="ws-scope"><ShieldCheck size={15} />{view === 'incidents' ? assignmentScope === 'mine' ? 'Assigned to you' : 'Visible to your team' : view === 'team' ? 'Your team directory' : 'Assigned to you'}</span></div>
+      <div className="ws-heading"><div><div className="ws-kicker">YOUR RESPONSE WORKSPACE</div><h1>{pageTitles[view]}</h1><p>{view === 'incidents' ? 'A clear view of what needs your attention, and what’s already in progress.' : view === 'inbox' ? 'Updates for your incidents. Reading a notification does not acknowledge an incident.' : view === 'escalation' ? 'Design a bounded response path and review it with a virtual-clock simulation.' : view === 'status' ? 'A service health snapshot based on incidents in this demo workspace.' : view === 'integrations' ? 'Manage demo event sources connected to your services.' : view === 'analytics' ? 'Review response trends calculated from the current sample incidents.' : 'Your services, people and response tools, connected in one workspace.'}</p></div><span className="ws-scope"><ShieldCheck size={15} />{view === 'incidents' ? assignmentScope === 'mine' ? 'Assigned to you' : 'Visible to your team' : view === 'team' ? 'Your team directory' : view === 'escalation' ? 'Practice configuration' : view === 'status' ? 'Demo service health' : view === 'integrations' ? 'Demo configuration' : view === 'analytics' ? 'Sample data' : 'Assigned to you'}</span></div>
       <div className="ws-notice" role="status" aria-live="polite">{notice && <><CircleCheck size={17} /><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></>}</div>
 
       {(view === 'incidents' || view === 'inbox') && <><div className="ws-stats">
@@ -147,16 +155,18 @@ export function ResponderDashboard({ onLogout }: { onLogout: () => void }) {
 
         <aside className="ws-sidebar" aria-label="Responder context">
           <section className="ws-oncall-card"><div className="ws-sidebar-title"><span className="ws-oncall-dot" />YOUR ON-CALL ASSIGNMENT<span className="ws-small-badge">Static</span></div><div className="ws-oncall-person">{profile.avatar ? <img className="ws-avatar ws-avatar-photo" src={profile.avatar} alt="" /> : <span className="ws-avatar">{profile.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>}<div><h2>You’re the primary responder</h2><p>{DEMO_ACCOUNT.team}</p></div></div><div className="ws-oncall-services">{myServices.map(name => <span key={name}><Server size={12} />{name}</span>)}</div><p className="ws-oncall-foot">Sample assignment · no rotation schedule</p></section>
-          <section className="ws-panel ws-sidebar-panel"><div className="ws-sidebar-heading"><ShieldCheck size={16} /><h2>Escalation path</h2></div><p className="ws-sidebar-description">Reference policy for the demo services.</p><ol className="ws-policy"><li><span>1</span><div><strong>Linh Nguyen <em>You</em></strong><small>Primary responder</small></div></li><li><span>2</span><div><strong>Quang Tran</strong><small>Secondary responder</small></div></li><li><span><ArrowDownLeft size={13} /></span><div><strong>Mai Pham</strong><small>Backstop after retry limits</small></div></li></ol><p className="ws-policy-note">ACK stops escalation. Timers and paging are not running in this demo.</p></section>
+          <section className="ws-panel ws-sidebar-panel"><div className="ws-sidebar-heading"><ShieldCheck size={16} /><h2>Sample escalation path</h2></div><p className="ws-sidebar-description">Reference policy for the demo services.</p><ol className="ws-policy"><li><span>1</span><div><strong>Linh Nguyen <em>You</em></strong><small>Primary responder</small></div></li><li><span>2</span><div><strong>Quang Tran</strong><small>Secondary responder</small></div></li><li><span><ArrowDownLeft size={13} /></span><div><strong>Mai Pham</strong><small>Backstop after retry limits</small></div></li></ol><p className="ws-policy-note">ACK stops escalation. Timers and paging are not running in this demo.</p><button className="ws-text-button" onClick={() => setView('escalation')}>Open escalation policies <ArrowRight size={14} /></button></section>
           <section className="ws-panel ws-sidebar-panel"><div className="ws-sidebar-heading"><Bell size={16} /><h2>Needs your attention</h2></div><p className="ws-attention-count">{myTriggered}<span>incidents awaiting your ACK</span></p><button className="ws-sidebar-link" onClick={() => { setAssignmentScope('mine'); resetFilters(); chooseStatus('TRIGGERED'); }}>Review triggered incidents <ArrowRight size={16} /></button></section>
-          <button className="ws-reset" onClick={() => { dispatch({ type: 'reset', at: Date.now() }); resetFilters(); setUnreadOnly(false); setSelectedId(null); setNow(Date.now()); setSetup(initialSetup); setShifts([]); setNotice('Sample incidents, notifications and onboarding progress restored.'); }}><RotateCcw size={13} />Reset sample data</button>
+          <button className="ws-reset" onClick={() => { dispatch({ type: 'reset', at: Date.now() }); resetFilters(); setUnreadOnly(false); setSelectedId(null); setNow(Date.now()); setSetup(initialSetup); setShifts([]); setScheduleInfo(initialScheduleInfo); setIntegration(initialIntegration); setEscalationPolicies(createEscalationPolicies()); setEscalationEpoch(value => value + 1); setNotice('Sample incidents, notifications and onboarding progress restored.'); }}><RotateCcw size={13} />Reset sample data</button>
         </aside>
       </div>
       </>}
-      {view === 'schedule' && <SchedulePage profile={profile} shifts={shifts} onShifts={setShifts} now={now} onBack={() => setView('setup')} />}
+      {view === 'schedule' && <SchedulePage info={scheduleInfo} onInfo={setScheduleInfo} profile={profile} shifts={shifts} onShifts={setShifts} now={now} onBack={() => setView('setup')} />}
       {view === 'setup' && <OnboardingPage profile={profile} workspace={state} preferences={setupPreferences} completion={completion} onPreferences={setSetup} onView={setView} onIncident={setSelectedId} onTestNotification={() => { if (setup.inboxEnabled) dispatch({ type: 'testNotification', at: Date.now() }); }} onTestAlert={(targetService, summary, testPriority) => { if (hasPersonalCoverage(shifts, Date.now()) && setup.escalationConfirmed) dispatch({ type: 'testAlert', service: targetService, summary, priority: testPriority, name: profile.name, at: Date.now() }); }} />}
+      {(view === 'status' || view === 'integrations' || view === 'analytics') && <SystemPages view={view} incidents={allVisible} integration={integration} onIntegration={setIntegration} onNotice={setNotice} onIncidents={() => { resetFilters(); setView('incidents'); }} now={now} />}
+      <div hidden={view !== 'escalation'}><EscalationPage key={escalationEpoch} policies={escalationPolicies} profile={profile} shifts={shifts} now={now} onView={setView} onSave={policy => { setEscalationPolicies(current => current.map(item => item.service === policy.service ? policy : item)); setSetup(current => ({ ...current, escalationConfirmed: false })); }} onReviewed={() => setSetup(current => ({ ...current, escalationConfirmed: true }))} /></div>
       <WorkspacePages view={view} incidents={assigned} teamIncidents={allVisible} profile={profile} onProfile={nextProfile => { setProfile(nextProfile); setSetup(current => ({ ...current, profileSaved: true })); }} onIncident={setSelectedId} onView={setView} onService={name => { resetFilters(); setService(name); setStatus('ALL'); setAssignmentScope('mine'); setView('incidents'); }} />
-      <footer className="ws-footer"><button className="ws-text-button" onClick={() => setView('schedule')}>On-call schedule</button><button className="ws-text-button" onClick={() => setView('setup')}>Account setup</button><span>NexusOps · Incident & Reliability Operations</span><span>Frontend demo · No live monitoring</span></footer>
+      <footer className="ws-footer"><button className="ws-text-button" onClick={() => setView('escalation')}>Escalation policies</button><button className="ws-text-button" onClick={() => setView('schedule')}>On-call schedule</button><button className="ws-text-button" onClick={() => setView('setup')}>Account setup</button><span>NexusOps · Incident & Reliability Operations</span><span>Frontend demo · No live monitoring</span></footer>
     </main>
     {selectedIncident && <IncidentDetails key={selectedIncident.id} incident={selectedIncident} canManage={selectedIncident.assignedTo === RESPONDER_ID} onClose={() => setSelectedId(null)} onAcknowledge={() => acknowledge([selectedIncident.id])} onResolve={reason => { dispatch({ type: 'resolve', id: selectedIncident.id, reason, at: Date.now() }); setNotice(`Incident #${selectedIncident.id} resolved. Linked alerts closed in the demo.`); }} onNote={content => { dispatch({ type: 'note', id: selectedIncident.id, content, at: Date.now(), entryId: crypto.randomUUID() }); setNotice('Note added to the incident timeline.'); }} />}
   </div>;

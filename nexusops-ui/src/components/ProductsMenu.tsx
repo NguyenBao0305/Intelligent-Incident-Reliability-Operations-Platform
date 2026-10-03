@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Activity, BellRing, ChartNoAxesCombined, ChevronDown, Sparkles, Server, Cable, ShieldCheck, ClipboardList } from 'lucide-react';
+import { Activity, ArrowRight, BellRing, ChartNoAxesCombined, ChevronDown, Sparkles, Server, Cable, ShieldCheck, ClipboardList } from 'lucide-react';
 import './products-menu.css';
 
 const products = [
@@ -28,6 +28,11 @@ const products = [
     tone: 'blue',
   },
 ];
+const productRoutes: Record<string, string> = {
+  'Incident Management': '#product-incident-management',
+  'On-call & Escalation': '#product-on-call-escalation',
+  'AI Investigation & Automation': '#product-ai-automation',
+};
 
 const platform = [
   { title: 'Service Catalog', description: 'See service ownership, criticality and dependencies.', icon: Server, tone: 'mint' },
@@ -78,9 +83,14 @@ export function ProductsMenu() {
               <h2 id={`${panelId}-product-title`} className="products-group-title">Product</h2>
               <ul className="products-grid" aria-label="NexusOps products">
                 {products.map(({ title, description, icon: Icon, tone }) => (
-                  <li key={title} className="product-summary">
-                    <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
-                    <div><h3>{title}</h3><p>{description}</p></div>
+                  <li key={title} className={`product-summary${productRoutes[title] ? ' product-summary-linked' : ''}`}>
+                    {productRoutes[title] ? <a className="product-summary-link" href={productRoutes[title]} onClick={() => setOpen(false)}>
+                      <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
+                      <div><span className="product-title-link">{title}<ArrowRight size={15} aria-hidden="true" /></span><p>{description}</p></div>
+                    </a> : <>
+                      <span className={`product-icon product-icon-${tone}`} aria-hidden="true"><Icon size={22} strokeWidth={1.65} /></span>
+                      <div><h3>{title}</h3><p>{description}</p></div>
+                    </>}
                   </li>
                 ))}
               </ul>

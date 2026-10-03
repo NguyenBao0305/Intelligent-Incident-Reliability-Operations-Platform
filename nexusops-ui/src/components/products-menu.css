@@ -123,6 +123,30 @@
   letter-spacing: -.2px;
 }
 
+.product-summary-link { display: flex; flex: 1; align-items: flex-start; gap: 15px; color: inherit; text-decoration: none; }
+.product-summary-link:focus-visible { outline: 2px solid #059669; outline-offset: 4px; border-radius: 4px; }
+
+.product-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 0 7px;
+  color: #233c30;
+  font-family: 'Outfit', sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -.2px;
+  text-decoration: none;
+  transition: color 180ms ease;
+}
+
+.product-title-link svg { color: #18825b; opacity: 0; transform: translateX(-4px); transition: opacity 180ms ease, transform 180ms ease; }
+.product-summary-linked:hover .product-title-link,
+.product-summary-link:focus-visible .product-title-link { color: #08784d; }
+.product-summary-linked:hover .product-title-link svg,
+.product-summary-link:focus-visible .product-title-link svg { opacity: 1; transform: translateX(0); }
+
 .product-summary p {
   margin: 0;
   color: #7a8880;
@@ -159,10 +183,12 @@
   .products-eyebrow { margin-left: 10px; margin-bottom: 9px; font-size: 9px; }
   .product-summary { padding: 15px 10px; gap: 13px; }
   .product-summary h3 { font-size: 16px; }
+  .product-title-link { font-size: 16px; }
   .product-icon { flex-basis: 42px; height: 42px; border-radius: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .products-panel { animation: none; }
-  .products-trigger, .products-trigger svg, .product-summary { transition: none; }
+  .products-trigger, .products-trigger svg, .product-summary, .product-title-link, .product-title-link svg { transition: none; }
+  .product-title-link svg { opacity: 1; transform: none; }
 }

@@ -49,7 +49,7 @@ export function WorkspacePages({ view, incidents, teamIncidents, profile, onProf
     }));
   }
   const picker = <label className="wp-field">Incident context<select value={incidentId} onChange={event => setIncidentId(Number(event.target.value))}>{assigned.map(item => <option key={item.id} value={item.id}>#{item.id} · {item.service} · {statusLabels[item.status]}</option>)}</select></label>;
-  return <div className="wp-pages" hidden={view === 'incidents' || view === 'inbox' || view === 'setup' || view === 'schedule'}>
+  return <div className="wp-pages" hidden={view === 'escalation' || view === 'incidents' || view === 'inbox' || view === 'setup' || view === 'schedule' || view === 'status' || view === 'integrations' || view === 'analytics'}>
     {view === 'services' && <>
       <div className="wp-intro"><Server /><div><h2>Services you respond to</h2><p>Ownership, dependencies and your assigned incidents. Configuration is managed by authorized service managers.</p></div></div>
       <input className="wp-search" aria-label="Search services" placeholder="Search services…" value={query} onChange={event => setQuery(event.target.value)} />

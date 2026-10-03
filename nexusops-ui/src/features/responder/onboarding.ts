@@ -12,7 +12,7 @@ export const setupSteps: { id: SetupStep; title: string; description: string }[]
   { id: 'profile', title: 'Complete your profile', description: 'Save your name, timezone and contact details. A photo is optional.' },
   { id: 'notifications', title: 'Receive a test notification', description: 'Enable the in-app test channel, send a test and mark it as read in Inbox.' },
   { id: 'oncall', title: 'Create your on-call schedule', description: 'Plan your hours and save a valid shift assigned to yourself in the weekly scheduler.' },
-  { id: 'escalation', title: 'Understand your escalation path', description: 'Walk through the two levels and backstop before confirming.' },
+  { id: 'escalation', title: 'Review your escalation policy', description: 'Configure two levels and a backstop, simulate the saved policy, then confirm your review.' },
   { id: 'integration', title: 'Try a monitoring integration', description: 'Send a local test alert through the demo simulator.' },
   { id: 'response', title: 'Receive & respond to an incident', description: 'Acknowledge and resolve your onboarding incident with a resolution note.' },
 ];

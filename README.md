@@ -2,7 +2,7 @@
 
 NexusOps là nền tảng web hỗ trợ đội ngũ kỹ thuật tiếp nhận cảnh báo, phối hợp xử lý sự cố và rút kinh nghiệm sau vận hành. Hệ thống tập hợp incident, người phụ trách, bằng chứng điều tra và lịch sử xử lý để đội ngũ biết **đang có sự cố gì, ai đang xử lý và bước tiếp theo là gì**.
 
-**Cập nhật: 03/10/2026.** Phiên bản hiện tại là prototype frontend: landing page với Products/Solutions, Login/Sign Up và workspace Responder có dữ liệu mẫu. Các thao tác trong workspace mô phỏng nghiệp vụ; xác thực thật, backend, database, mô hình AI và executor chưa được kết nối. Phạm vi MVP phục vụ **một tổ chức và một team**.
+**Cập nhật: 03/10/2026.** Phiên bản hiện tại là prototype frontend gồm landing page, Login/Sign Up và workspace Responder. Workspace hiện có Incident overview, Inbox, Services, People, Status, Integrations, Analytics, Automation, Profile, Account setup, On-call Schedule và Escalation policies. Các trang nghiệp vụ dùng dữ liệu mẫu/state trình duyệt; xác thực thật, API/backend, database, gửi paging, mô hình AI và executor chưa được kết nối. Phạm vi nghiệp vụ MVP phục vụ **một tổ chức và một team**.
 
 [MVP Scope.md](MVP%20Scope.md) là nguồn đặc tả nghiệp vụ. [Detailed description.md](Detailed%20description.md) trình bày định hướng mở rộng. README này giải thích giao diện và trạng thái hiện thực; các mục ghi **theo MVP** mô tả chức năng dự kiến, các mục ghi **demo** mô tả những gì có thể thao tác hiện tại.
 
@@ -152,7 +152,7 @@ Products trên landing page giới thiệu các năng lực của cùng nền t�
 
 Ví dụ: Product **Incident Management** dùng **Service Catalog** để biết alert thuộc service nào, dùng **Monitoring Integrations** để nhận sự kiện và dùng **Policies & Permissions** để xác định phạm vi truy cập/hành động. Product **AI Investigation & Automation** đọc ngữ cảnh có quyền và tạo action cần kiểm soát; **Audit Trail** lưu dấu vết quyết định. Một Platform có thể hỗ trợ nhiều Product.
 
-Các mục trong dropdown hiện là nội dung giới thiệu, chưa dẫn đến trang sản phẩm riêng. Mô tả bên dưới là mục tiêu/đặc tả theo MVP; chúng không khẳng định mọi chức năng backend đã hoàn thành.
+Các mục trong dropdown giới thiệu năng lực theo MVP. **Incident Management** đã có trang chi tiết công khai tại `/#product-incident-management`; các Product/Platform khác hiện vẫn là nội dung giới thiệu trong dropdown. Mô tả bên dưới là mục tiêu/đặc tả theo MVP; chúng không khẳng định mọi chức năng backend đã hoàn thành.
 
 | Product — luồng nghiệp vụ | Platform — năng lực nền |
 |---|---|
@@ -182,6 +182,8 @@ Hai cột trên liệt kê hai nhóm menu độc lập; các mục cùng một h
 
 Phạm vi MVP dùng quy tắc xác định để gom nhóm trong cùng service; việc gom nhóm chưa dựa trên AI. ACK xác nhận đã tiếp nhận, còn Resolve là bước kết thúc xử lý theo trạng thái và điều kiện cho phép.
 
+Trang chi tiết công khai có thể mở từ **Products → Incident Management**. Trang giải thích luồng alert → incident → nhận trách nhiệm → phối hợp → resolve, trình bày một hồ sơ incident minh họa bằng dữ liệu mẫu và nêu rõ các giới hạn MVP. Các thẻ alert, responder và mốc thời gian trong hình là minh họa tĩnh; trang này không nhận alert, gửi paging hay kết nối monitor. CTA **Explore the demo** đưa người dùng đến Login để vào workspace Responder demo.
+
 #### 4.1.2. On-call & Escalation — Trực và chuyển cấp
 
 > Notify the right responders and escalate when needed.
@@ -199,6 +201,12 @@ Phạm vi MVP dùng quy tắc xác định để gom nhóm trong cùng service; 
 
 Phạm vi hiện tại của MVP chưa gồm lịch trực luân phiên phức tạp hoặc đổi ca. Việc chuyển cấp có điểm dừng và backstop, không lặp vô hạn.
 
+Trang sản phẩm công khai mở từ **Products → On-call & Escalation** (`/#product-on-call-escalation`). Trang dùng lịch tuần minh họa để giải thích coverage theo service/timezone, sau đó mô tả policy hai level và một backstop. Ví dụ timeline mặc định là T+0 Primary, T+5 reminder, T+10 Secondary và T+20 backstop một lần; ACK ở bất kỳ bước nào thì dừng các bước chờ còn lại. Đây là hình và dữ liệu minh họa, không gửi thông báo thật.
+
+Trang cũng nêu rõ ranh giới hiện thực: scheduler của workspace lưu ca cục bộ, policy designer mô phỏng timeout bằng đồng hồ ảo; ca trực hiện chưa tự biến thành targets của policy. MVP yêu cầu assignment tĩnh, hai level liên tục, targets cùng team, snapshot policy khi tạo incident và bộ xử lý escalation backend hữu hạn. Rotation nền, paging/provider thật và DST nằm ngoài phạm vi hiện tại.
+
+Trang công khai **AI Investigation & Automation** (`/#product-ai-automation`) minh họa báo cáo điều tra cho một incident mẫu: alert, deployment và runbook được ghi thành các nguồn bằng chứng; phần giả thuyết được đánh dấu chưa xác nhận; runbook đề xuất cần con người review. Các phần tiếp theo giải thích luồng context có scope, evidence, action snapshot, approval và sandbox, đồng thời phân biệt vai trò Investigation Agent với Automation Worker. Trang ghi rõ báo cáo đang dùng dữ liệu minh họa; model, RAG và thực thi thật chưa kết nối.
+
 #### 4.1.3. AI Investigation & Automation — Điều tra AI và tự động hóa
 
 > Investigate with evidence and review proposed actions.
@@ -211,11 +219,11 @@ Phạm vi hiện tại của MVP chưa gồm lịch trực luân phiên phức t
 - Tra cứu sự cố cũ và tài liệu tri thức đã được phê duyệt bằng cơ chế RAG.
 - Tổng hợp dữ kiện, giả thuyết, thông tin còn thiếu và đề xuất xử lý có dẫn chứng.
 - Đề xuất runbook trong danh sách được phép; hỗ trợ người có quyền xem xét, phê duyệt hoặc từ chối action.
-- Thực thi runbook trong sandbox với giới hạn tần suất, kiểm tra phạm vi và trạng thái thực thi.
+- Thực thi runbook trong sandbox với action snapshot bất biến, kiểm tra quyền/phạm vi, giới hạn tần suất, cooldown, circuit breaker và trạng thái thực thi.
 
 **Tác dụng:** giảm công sức tập hợp ngữ cảnh và giúp người vận hành đưa ra quyết định dựa trên bằng chứng. Ví dụ, AI có thể chỉ ra một deployment gần thời điểm xuất hiện cảnh báo để người xử lý điều tra thêm; sự gần nhau về thời gian chưa đủ để kết luận deployment là nguyên nhân.
 
-AI không tự phê duyệt hoặc trực tiếp gọi công cụ thực thi. Backend kiểm soát điều kiện chạy; approval không bỏ qua các giới hạn bảo vệ. MVP chưa cam kết tự khắc phục hoặc rollback hệ thống production.
+AI không có công cụ approve/execute hay shell tùy ý và không giữ credential executor. Automation Worker là thành phần duy nhất được cấp credential để chạy runbook allowlist trong sandbox; backend xác nhận action snapshot và quyền trước khi dispatch. Approval không bỏ qua quota, cooldown hoặc circuit breaker. Đây là thiết kế MVP, chưa phải khả năng đã kết nối của bản demo UI.
 
 #### 4.1.4. Post-Incident Review & Insights — Đánh giá sau sự cố và thống kê
 
@@ -274,7 +282,15 @@ Products và Solutions cùng giới thiệu NexusOps từ hai góc nhìn: Produc
 
 ### 5.1. Customer và Resources
 
-**Customer** là liên kết điều hướng thông thường đến phần giới thiệu khách hàng trên trang chủ, không mở dropdown. Nội dung Customer trên landing hiện là bản minh họa cho prototype; chưa đại diện cho khách hàng hay case study đã xác minh.
+**Customer** dẫn đến phần giới thiệu đối tượng sử dụng trên trang chủ: responder, người quản lý service và người có quyền review action. Phần này giải thích trách nhiệm của từng nhóm; không mở dropdown. Các review, xếp hạng, số liệu đánh giá và logo khách hàng mẫu đã được gỡ bỏ.
+
+Phần cuộn bên dưới hero hiện gồm:
+
+- **Workspace overview:** mô hình giao diện incident với status, priority, service và người phụ trách. Nút Explore the workspace trên hero cuộn tới phần này (`/#demo`); CTA bên dưới mở Login.
+- **Incident lifecycle:** bốn nút đổi minh họa và nội dung về Incident, Escalation, AI Investigation, Review. Đây là bản giới thiệu tương tác; các thẻ trong hình không thực hiện ACK, gửi paging hoặc chạy runbook. AI/PIR được ghi rõ là luồng MVP dự kiến.
+- **Signal & service context:** sơ đồ sự kiện giám sát → ngữ cảnh service/gom alert → incident/người phản hồi. Không quảng bá adapter hoặc kết nối thật chưa triển khai.
+- **People & responsibilities:** phần đích của Customer (`/#customers`), mô tả ba nhóm trách nhiệm. Quyền thao tác thực tế vẫn theo đặc tả MVP.
+- **CTA và footer:** dẫn đến Login demo, trang Incident Management và Pricing. Minh họa dựng bằng HTML/CSS để co giãn theo màn hình, có hiệu ứng hover/chuyển nội dung nhẹ và hỗ trợ reduced motion.
 
 Menu **Resources** dùng ba cột theo mẫu giao diện:
 
@@ -293,7 +309,7 @@ Bấm từng mục để mở mô tả ngắn ngay trong menu. API Reference đ�
 
 Trang `/#pricing` giới thiệu một gói duy nhất là **Free ($0)**, không có lựa chọn thanh toán hoặc gói trả phí. Phần nội dung gồm:
 
-- **Chức năng được trải nghiệm:** quản lý incident, inbox, danh mục service/team, báo cáo AI mẫu, luồng approval và kết quả automation mô phỏng, cập nhật profile/ảnh đại diện.
+- **Chức năng được trải nghiệm trong prototype:** incident và inbox mẫu, service/team, lịch trực và escalation policy mô phỏng, status/analytics từ dữ liệu mẫu, báo cáo AI mẫu, luồng approval, automation mô phỏng và cập nhật profile/ảnh đại diện.
 - **Phạm vi:** một tổ chức, một team; tài khoản demo hiện là Responder.
 - **Quyền theo vai trò:** Responder xử lý incident được giao; Team Manager có quyền quản lý service theo M1; Account Admin có các permission MVP đã khai báo; quyền đọc chi tiết của Viewer còn cần chốt khi nối backend. Incident Commander là phân công trên từng incident.
 - **Explore free demo:** dẫn đến Login để dùng tài khoản mẫu. **Join your team:** dẫn đến form Sign Up theo lời mời.
@@ -303,6 +319,8 @@ Free mô tả gói sử dụng; quyền thao tác vẫn phụ thuộc role, ph�
 <a id="workspace"></a>
 
 ## 7. Workspace Responder — Hướng dẫn sử dụng demo
+
+Workspace hiện là giao diện Responder cho một team mẫu. Thanh taskbar dẫn đến **Incidents, Services, People, Status, Integrations, Analytics** và **Automation**. **Inbox** mở bằng chuông ở góc phải; khi có thông báo chưa đọc, chuông hiện số lượng và hiệu ứng chuyển động nhẹ. Bấm logo NexusOps đưa người dùng đang đăng nhập về Incident overview, chuyển phạm vi về Assigned to me và xóa tìm kiếm/bộ lọc/incident đang mở. Profile mở từ tên/avatar. AI Investigation hiện chưa có mục điều hướng trong taskbar.
 
 ### 7.1. Cách đọc danh sách incident
 
@@ -338,40 +356,60 @@ Luồng xử lý thủ công trong demo là **Triggered → Acknowledged → Res
 - **ACK:** thao tác từng incident trong bảng chi tiết hoặc chọn nhiều incident đang Triggered. ACK ghi thời điểm nhận xử lý và dừng escalation trong mô phỏng.
 - **Chi tiết:** xem alert liên quan, thời gian, trạng thái escalation và timeline; chỉ thêm ghi chú vào incident được giao cho mình.
 - **Resolve:** chỉ thực hiện sau ACK và bắt buộc có lý do; đóng các alert liên quan, ghi lịch sử và cập nhật số liệu.
-- **Inbox:** xem thông báo, đánh dấu đã đọc và mở incident liên quan. Đọc thông báo không tương đương ACK.
-- **Thông tin trực:** hiển thị phân công tĩnh cùng chính sách hai mức và backstop mẫu. Không có bộ đếm chuyển cấp hoặc gửi thông báo thật.
-- **Reset sample data:** khôi phục bộ dữ liệu mẫu ban đầu.
+- **Inbox:** bấm chuông trên taskbar để mở danh sách; số trên chuông là số thông báo chưa đọc. Có thể lọc Unread only, đánh dấu từng thông báo hoặc tất cả là đã đọc, và mở incident liên quan. Đọc thông báo không tương đương ACK.
+- **Thông tin trực:** sidebar incident hiển thị phân công tĩnh và đường phản hồi tham khảo. Liên kết trong card mở trang cấu hình Escalation policies; bản demo không có bộ đếm chuyển cấp thực hoặc gửi thông báo.
+- **Reset sample data:** nút này ở cuối sidebar Incident overview. Nút đặt lại incident, inbox, onboarding, lịch trực, cấu hình integration và các practice escalation policy; báo cáo AI, action và profile hiện tại được giữ lại.
 
-### 7.3. Services, Team, AI, Automation và Profile
+### 7.3. Services, People, Status, Integrations, Analytics, Automation và Profile
 
 - **Services:** tìm dịch vụ, xem mức độ quan trọng, team sở hữu, phụ thuộc, integration mẫu và số incident đang mở được giao cho mình; mở danh sách incident theo service. Không cấp quyền `SERVICE_MANAGE` cho Responder.
-- **People & Teams:** hai mục Members/Teams trong cùng một danh bạ. Tìm theo tên/email, lọc role hoặc phân công primary/secondary/backstop, xem hồ sơ thành viên và các incident đang mở được giao cho người đó. Số incident lấy từ dữ liệu workspace hiện tại; incident của đồng đội vẫn chỉ đọc với Responder. Mục Teams hiển thị team, các service và đường escalation. Tên/ảnh của bản thân đồng bộ với Profile. Responder chỉ sửa hồ sơ của mình; chưa có thao tác mời thành viên hoặc thay đổi role. Danh bạ hiện gồm một team mẫu, không có trạng thái online hay lịch trực xoay ca thực tế.
-- **AI Investigation:** chọn incident chưa Resolve, tạo báo cáo mô phỏng từ snapshot alert; phân biệt bằng chứng, giả thuyết chưa xác nhận và thông tin còn thiếu. Mỗi báo cáo có thể đề xuất diagnostic runbook cùng service.
-- **Automation:** yêu cầu action, xem snapshot và evidence, approve/reject, sau đó mô phỏng thực thi sandbox. Tất cả runbook mẫu đều cần approval, kể cả LOW; service CRITICAL làm effective risk thành HIGH. Incident đã Resolve không được approve hoặc thực thi thêm. Lịch sử và kết quả là dữ liệu demo, chưa có backend kiểm tra hash, quota, circuit breaker hay gọi command.
+- **People & Teams:** trang mở ở People trên taskbar và có hai tab Members/Teams. Members tìm theo tên/email, lọc account role và response assignment (Primary, Secondary, Backstop), xem hồ sơ và các incident mở được giao. Incident của đồng đội chỉ xem được với Responder. Teams trình bày team mẫu, các service, thành viên và đường phản hồi. Từ trang People có lối vào On-call Schedule và Escalation policies. Responder có thể sửa hồ sơ của mình; không mời thành viên hoặc đổi account role. Danh bạ không thể hiện trạng thái online.
+- **Status:** hiển thị thẻ sức khỏe cho ba service mẫu. Trạng thái được suy ra từ incident trong workspace: còn Triggered là Action needed, còn Acknowledged là Investigating, không có incident mở là Operational. Thẻ cho biết số incident mở/tổng trong mẫu và liên kết về danh sách incident. Đây không phải uptime/SLA và không truy vấn hệ thống giám sát thật.
+- **Integrations:** form cho nhập tên integration, chọn service, lưu cấu hình demo, gửi một test event cục bộ hoặc Pause. Trang hiển thị trạng thái bật/tắt và thời điểm test gần nhất. Không cấp API key, gọi webhook bên ngoài hay tạo alert thật; cấu hình chỉ nằm trong state frontend.
+- **Analytics:** chọn cửa sổ 24 giờ, 7 ngày hoặc 30 ngày. Trang tổng hợp số incident, thời gian ACK trung bình, thời gian Resolve trung bình, phân bố theo service và snapshot status từ dữ liệu mẫu hiện có. Thời gian chỉ tính các incident có mốc tương ứng; kết quả minh họa không phải báo cáo SLA và sẽ thay đổi khi dữ liệu demo đổi.
+- **AI Investigation:** component mô phỏng vẫn có trong source nhưng hiện chưa có mục mở từ taskbar. Không xem chức năng này là trang đang truy cập được trong giao diện hiện tại.
+- **Automation:** mở từ taskbar để xem/yêu cầu action, snapshot và evidence, approve/reject rồi mô phỏng kết quả thực thi sandbox. Runbook mẫu đều cần approval, kể cả LOW; service CRITICAL làm effective risk thành HIGH. Incident đã Resolve không được approve hoặc thực thi tiếp. Lịch sử/kết quả nằm trong state; chưa có kiểm tra hash/quota/circuit breaker phía server hoặc gọi command.
 - **Profile:** bấm tên/avatar ở góc phải để xem tài khoản, team, phân công escalation và bốn permission của Responder. Cập nhật ảnh đại diện PNG/JPG/WebP (tối đa 2 MB), tên hiển thị, chức danh, phòng ban, số điện thoại, địa điểm và tùy chọn múi giờ trong workspace. Thời gian incident vẫn theo múi giờ trình duyệt; email, role và mật khẩu không chỉnh sửa trong bản demo.
 
 Các trang dùng chung dữ liệu incident. Xem [trạng thái hiện thực và vòng đời dữ liệu demo](#hien-trang) để biết những gì được giữ khi chuyển mục, tải lại trang hoặc reset dữ liệu.
 
-### 7.4. Account setup / Complete onboarding
+<a id="escalation-demo"></a>
 
-Banner đầu workspace dẫn đến trang Account setup với checklist và các màn hình cho từng bước. Có thể quay lại bằng liên kết Account setup ở cuối workspace, kể cả sau khi hoàn tất. Mở một trang không tự đánh dấu hoàn thành.
+### 7.4. Escalation policies — cấu hình và mô phỏng
+
+Mở từ **People → Escalation policies**; cũng có liên kết ở sidebar Incident, footer workspace và bước escalation trong onboarding. Trang được chia thành vùng cấu hình bên trái và **Response preview** bên phải; trên màn hình hẹp, preview chuyển xuống dưới. Badge chỉ ra policy đã lưu hay còn thay đổi chưa lưu. Bộ chọn Service đổi giữa ba policy mẫu; khi đang có thay đổi chưa lưu, cần Save hoặc Discard trước khi đổi service. Team là team mẫu cố định.
+
+Mỗi service có một policy riêng gồm tên, mô tả, đúng hai level và một backstop. Mỗi level có thể chọn nhiều thành viên cùng team, thời gian chờ ACK 1–60 phút, 0–5 lời nhắc bổ sung và khoảng chờ 1–60 phút sau mỗi lời nhắc. Không chọn target, nhập timeout sai giới hạn hoặc chọn backstop ngoài danh bạ thì policy không lưu/chạy mô phỏng. Backstop nhận một thông báo cuối sau khi hết ngân sách level 2; quá trình dừng tại đó, incident vẫn Triggered đến khi có người ACK hoặc Resolve. Đây là giới hạn giao diện demo; MVP quy định hai level hữu hạn, nhiều target và một backstop.
+
+**Save practice policy** lưu thay đổi trong state workspace và tăng version. **Trigger demo incident** bắt đầu preview với snapshot của version đã lưu. Timeline hiển thị người nhận và mốc phút dự kiến; **No ACK · advance** nhảy đồng hồ ảo sang sự kiện kế tiếp, **Simulate ACK** kết thúc luồng và hủy các bước còn lại. Ví dụ cấu hình mặc định: T+0 thông báo level 1 → T+5 nhắc level 1 → T+10 thông báo level 2 → T+20 thông báo backstop một lần. Sửa policy sau khi chạy không đổi snapshot cũ; Restart mô phỏng dùng version mới.
+
+**Confirm escalation review** chỉ bật khi mô phỏng đến ACK hoặc backstop và đang dùng version đã lưu. Nút này xác nhận bước onboarding; lưu bất kỳ policy nào sẽ yêu cầu review lại. Người dùng demo Responder được sửa practice policy để thử giao diện. Khi triển khai nghiệp vụ, việc lưu policy thật cần quyền quản lý service được kiểm tra ở backend. Policy demo không sửa incident đang có, không đổi assignment, không tạo Inbox notification và không gửi email/SMS/paging.
+
+### 7.5. Account setup / Complete onboarding
+
+Banner đầu workspace dẫn đến trang Account setup với checklist sáu bước, số bước đã xong và phần nội dung thiết lập tương ứng. Mở trang thiết lập không tự đánh dấu hoàn thành; mỗi bước chỉ hoàn tất khi thỏa điều kiện nghiệp vụ demo. Có thể quay lại qua liên kết Account setup ở cuối workspace.
 
 | Bước | Thao tác và điều kiện hoàn thành |
 |---|---|
 | Complete your profile | Lưu hồ sơ ở Profile; ảnh và số điện thoại là tùy chọn. |
 | Receive a test notification | Lưu lựa chọn bật kênh thử In-app Inbox, gửi thông báo thử và đánh dấu thông báo đó đã đọc trong Inbox. Đọc thông báo không ACK incident. |
 | Create your on-call schedule | Mở trang On-call Schedule, tạo ca với ngày/giờ bắt đầu và kết thúc, service, người trực và lớp Primary/Secondary. Cần có ít nhất một ca hợp lệ được giao cho bản thân và chưa kết thúc; xóa ca cuối cùng hoặc ca hết hạn sẽ làm bước này chưa hoàn tất. |
-| Understand your escalation path | Chạy walkthrough Primary → Secondary → Backstop, sau đó xác nhận. Walkthrough không chạy timer hoặc sửa policy thực tế. |
+| Review your escalation policy | Mở People → Escalation policies, cấu hình policy mẫu, chạy mô phỏng đến ACK hoặc backstop và xác nhận review. Lưu phiên bản policy mới làm bước này chưa hoàn thành trở lại. |
 | Try a monitoring integration | Sau khi lưu ca hợp lệ cho bản thân và xác nhận escalation, chọn service, priority, nhập alert summary và gửi demo alert. Tạo một incident TRIGGERED cùng thông báo trong Inbox; không tạo trùng incident onboarding trong cùng phiên. |
 | Receive & respond to an incident | Mở incident onboarding, ACK, sau đó Resolve với lý do. Hoàn thành được tính từ trạng thái incident thực tế trong demo. |
 
-Mục **Your team members** là tham khảo tùy chọn và không tính vào sáu bước. Responder không có quyền tự mời người, đổi role, sửa policy hay phát hành integration key. Việc kết nối ở đây là simulator cho integration mẫu; không gửi email/SMS, gọi hệ thống bên ngoài hoặc xác thực endpoint thật. Bật/tắt kênh thử chỉ điều khiển thông báo thử, không tắt các thông báo incident hiện có.
+Mục **Your team members** là tham khảo tùy chọn và không tính vào sáu bước. Các bước thông báo, lịch, escalation và integration có lối mở đến đúng màn hình thiết lập. Test alert onboarding chỉ tạo một incident mẫu khi đã có ca hợp lệ cho bản thân và policy escalation đã được review. Gửi test lần hai trong cùng phiên không tạo incident onboarding trùng. Responder không được đổi role, mời người hoặc phát hành integration key thật. Test không gửi email/SMS, gọi hệ thống ngoài hay xác thực endpoint. Bật/tắt kênh Inbox thử chỉ điều khiển thông báo test.
 
-**On-call Schedule** là phần mở rộng giao diện theo yêu cầu, có lịch tuần 24 giờ, điều hướng tuần/Today, bộ lọc service/lớp trực, múi giờ UTC, Asia/Ho_Chi_Minh và Asia/Singapore. Tạo/sửa/xóa ca, hỗ trợ qua đêm và chặn chồng ca cùng service/lớp trực; mỗi ca dài từ 30 phút đến 7 ngày. Dữ liệu giờ lưu dưới dạng timestamp để đổi múi giờ hiển thị không thay đổi thời điểm ca. Thẻ trang trí dùng hiệu ứng CSS 3D nhẹ và tắt chuyển động khi người dùng chọn reduced motion. Có thể mở scheduler từ People, onboarding hoặc liên kết cuối workspace.
+### 7.6. On-call Schedule và Rotation builder
 
-Đây là **bản kế hoạch lịch trong demo**, cho phép thử phân công các thành viên mẫu. Lịch chưa thay thế phân công tĩnh của incident/escalation hiện tại, chưa chạy bộ lập lịch backend và chưa có rotation/DST. Những mục này cần cập nhật đặc tả MVP và kiểm tra quyền phía server khi chuyển sang vận hành thật.
+**On-call Schedule** là trang lập lịch trực, có lịch tuần 24 giờ, điều hướng tuần/Today, bộ lọc service/lớp trực, múi giờ UTC, Asia/Ho_Chi_Minh và Asia/Singapore. Tạo/sửa/xóa ca, hỗ trợ qua đêm và chặn chồng ca cùng service/lớp trực; mỗi ca dài từ 30 phút đến 7 ngày. Dữ liệu giờ lưu dưới dạng timestamp để đổi múi giờ hiển thị không thay đổi thời điểm ca. Thẻ trang trí dùng hiệu ứng CSS 3D nhẹ và tắt chuyển động khi người dùng chọn reduced motion. Có thể mở scheduler từ People, onboarding hoặc liên kết cuối workspace.
 
-Tiến độ nằm trong state của workspace, giữ khi đổi trang trong workspace và đặt lại khi rời workspace hoặc tải lại. Reset sample data cũng xóa incident/thông báo thử và đặt lại checklist. Backend cần lưu trạng thái setup theo tài khoản khi triển khai xác thực và dữ liệu thật.
+**Rotation builder** mở từ scheduler để tạo trước nhiều ca theo quy tắc: lưu tên/mô tả lịch, team mẫu và múi giờ mặc định; chọn thành viên, đổi thứ tự trực, luân phiên theo ngày hoặc mỗi 7 ngày, chọn ngày trong tuần và khung giờ. Giờ bắt đầu = kết thúc nghĩa là ca 24 giờ; giờ kết thúc nhỏ hơn bắt đầu nghĩa là qua ngày hôm sau. Ngày hạn chế tính theo ngày bắt đầu ca. Thứ tự đổi người dựa trên số ngày lịch kể từ ngày bắt đầu, kể cả ngày bị loại bởi bộ lọc. Primary/Secondary là các lớp coverage, không tự ánh xạ sang escalation level.
+
+Bấm **Preview rotation** để xem tất cả ca trong 7, 14 hoặc 28 ngày trước khi thêm. Khi áp dụng, toàn bộ batch được kiểm tra lại với lịch hiện tại; một xung đột sẽ chặn toàn bộ batch. Không ghi đè ca đã tồn tại. Sau khi thêm, các ca là từng bản ghi độc lập có thể sửa/xóa; thay đổi quy tắc chỉ áp dụng cho batch tiếp theo. Quy tắc không tự tái tạo lịch sau khoảng ngày đã chọn. Team không thể đổi vì MVP chỉ seed một team; múi giờ hỗ trợ UTC, Việt Nam và Singapore, chưa có DST.
+Đây là **bản kế hoạch lịch trong demo**, cho phép thử phân công các thành viên mẫu. Lịch chưa thay thế phân công tĩnh của incident/escalation hiện tại, chưa chạy bộ lập lịch backend và chưa có rotation chạy nền hay múi giờ DST. Những mục này cần cập nhật đặc tả MVP và kiểm tra quyền phía server khi chuyển sang vận hành thật.
+
+Tiến độ onboarding, ca trực, rotation đã sinh, escalation policies, cấu hình integration và dữ liệu incident/inbox được giữ trong bộ nhớ khi chuyển mục trong workspace; Reset sample data đặt lại các phần demo này. Tải lại hoặc rời workspace khởi tạo lại dữ liệu; dấu hiệu login demo có thể còn trong sessionStorage cùng tab. Backend cần lưu progress và cấu hình theo tài khoản/team khi triển khai thật.
 
 <a id="hien-trang"></a>
 
@@ -379,26 +417,31 @@ Tiến độ nằm trong state của workspace, giữ khi đổi trang trong wor
 
 | Hạng mục | Có thể sử dụng trong phiên bản hiện tại | Phần chưa kết nối/hoàn thành |
 |---|---|---|
-| Landing page | Giao diện giới thiệu; dropdown Products, Solutions, Resources; Customer là liên kết đến phần giới thiệu khách hàng; Pricing nằm cuối thanh điều hướng | Contact Us và một số nút marketing còn là placeholder |
-| Products | Hai nhóm Product/Platform, tổng cộng tám mục có mô tả | Chưa có trang chi tiết riêng cho từng mục |
-| Customer | Liên kết đến phần giới thiệu trên landing; không có dropdown | Nội dung minh họa, chưa có khách hàng/case study thực tế |
+| Landing page | Giao diện giới thiệu; dropdown Products, Solutions, Resources; Customer dẫn đến đối tượng sử dụng; phần cuộn có workspace, lifecycle tương tác, signal flow và CTA; Pricing nằm cuối thanh điều hướng | Contact Us và một số nút marketing còn là placeholder |
+| Products | Hai nhóm Product/Platform, tổng cộng tám mục có mô tả; Incident Management và On-call & Escalation mở trang chi tiết giải thích luồng MVP | Các Product/Platform còn lại chưa có trang chi tiết; minh họa trên hai trang dùng dữ liệu mẫu |
+| Customer | Liên kết tới phần đối tượng sử dụng và trách nhiệm; không có dropdown | Chưa có khách hàng/case study thực tế |
 | Resources | Ba cột Documentation/Guides/Resources, mở rộng mô tả từng mục | Chưa có trang docs/API/support độc lập; API Reference là bản nháp |
 | Solutions | Bốn thẻ tình huống; mở rộng để xem vấn đề, cách hỗ trợ và chức năng liên quan | Nội dung mô tả luồng MVP; chưa có trang giải pháp riêng |
 | Pricing | Một gói Free, chức năng được trải nghiệm, quyền theo role và lối vào demo | Không có billing; các role ngoài Responder chưa có giao diện riêng |
 | Login | Tài khoản demo Responder, kiểm tra form, hiện/ẩn mật khẩu, logout | Xác thực server, JWT/refresh token và phân quyền thật |
 | Sign Up | Form theo lời mời, kiểm tra trường nhập và xác nhận mật khẩu | Phát hành/xác minh lời mời, tạo tài khoản, lưu mật khẩu |
 | Incidents và Inbox | Assigned to me/All, lọc, tìm kiếm, ACK, Resolve, ghi chú, đánh dấu đã đọc | Nhận alert thật, xử lý đồng thời, lưu trữ, WebSocket và gửi thông báo |
+| Escalation policies | People → Escalation policies; cấu hình hai level nhiều user, ACK timeout, nhắc lại hữu hạn, một backstop; mô phỏng bằng đồng hồ ảo, snapshot phiên bản và ACK dừng chuyển cấp | Chưa có API lưu policy, scheduler/paging thật hoặc áp dụng policy mới vào incident mẫu |
 | Services và Team | Danh mục mẫu, phân công tĩnh, thông tin phụ thuộc và incident liên quan | Cấu hình service, quản lý thành viên và policy qua API |
-| AI Investigation | Báo cáo mẫu từ alert và đề xuất diagnostic action | Gọi mô hình, retrieval/RAG và kiểm tra evidence phía server |
-| Automation | Yêu cầu action, approve/reject, kết quả thực thi mô phỏng | Executor sandbox, xác thực snapshot, quota và circuit breaker |
+| On-call Schedule và Rotation | Lịch tuần, shift có validation, preview batch rotation theo ngày/tuần | Chưa lưu DB, tự luân phiên chạy nền hoặc đồng bộ targets escalation |
+| Status, Integrations và Analytics | Sức khỏe service suy ra từ incident mẫu; cấu hình/test integration cục bộ; thống kê phản hồi từ dữ liệu demo | Chưa kết nối monitor/webhook thật; không có SLA/uptime, API credentials hoặc lưu cấu hình |
+| AI Investigation | Trang giới thiệu công khai và component workspace dùng báo cáo mẫu | Workspace chưa có mục điều hướng đến AI; model, retrieval/RAG thật và kiểm tra evidence phía server chưa kết nối |
+| Automation | Workspace tạo action demo, xem evidence snapshot, approve/reject và mô phỏng kết quả; trang công khai giải thích safety flow theo MVP | Executor sandbox thật, xác thực snapshot phía server, phân quyền, quota và circuit breaker chưa kết nối |
 | Profile | Sửa tên, ảnh, chức danh, phòng ban, số điện thoại, địa điểm và tùy chọn múi giờ | Lưu hồ sơ thật, đổi email/mật khẩu; áp dụng múi giờ vào hiển thị timestamp |
 | PIR, metrics và audit | Được giới thiệu trong Products/Solutions | Chưa có màn hình nghiệp vụ và xử lý backend tương ứng |
+
+**Escalation policy demo:** cách vào trang, các trường cấu hình, điều kiện lưu, version/snapshot, mốc mô phỏng và giới hạn quyền được giải thích tại [mục 7.4](#escalation-demo). Các màn hình hiện chạy cục bộ; API, DB timer, policy snapshot của incident thật và delivery worker chưa được nối.
 
 **Vòng đời dữ liệu demo:**
 
 - Chuyển mục trong workspace giữ nguyên incident, inbox, báo cáo AI, action và hồ sơ trong bộ nhớ.
 - Tải lại hoặc rời workspace sẽ khởi tạo lại dữ liệu. Dấu hiệu đăng nhập demo trong `sessionStorage` có thể còn trong cùng tab; Logout xóa dấu hiệu này.
-- **Reset sample data** chỉ khôi phục incident/inbox. Báo cáo AI, action và profile đang có vẫn giữ nguyên; chúng có thể phản ánh snapshot trước khi reset.
+- **Reset sample data** khôi phục incident/inbox, onboarding, lịch, escalation policies và cấu hình integration. Báo cáo AI, action và profile đang có vẫn giữ nguyên; chúng có thể phản ánh snapshot trước khi reset.
 - Ảnh đại diện và thông tin profile không được gửi đến server. Múi giờ hiện là tùy chọn lưu trong bộ nhớ; timestamp vẫn dùng múi giờ trình duyệt.
 
 Backend cần kiểm tra quyền và phạm vi dữ liệu khi triển khai thật. Chế độ All hiện minh họa quyền xem trong một team bằng fixture; đây chưa phải chính sách quyền đọc đã được thực thi trên server.
@@ -422,6 +465,9 @@ Mở địa chỉ Vite hiển thị trong terminal, sau đó truy cập:
 | Đường dẫn | Nội dung |
 |---|---|
 | `/` | Landing page, dropdown Products và Solutions |
+| `/#product-incident-management` | Trang công khai Incident Management, giải thích luồng alert đến resolve theo MVP |
+| `/#product-on-call-escalation` | Trang công khai On-call & Escalation, giải thích coverage và policy hai level có backstop |
+| `/#product-ai-automation` | Trang công khai AI Investigation & Automation; giải thích evidence, giả thuyết, action snapshot, human approval và sandbox theo MVP |
 | `/#pricing` | Gói Free và quyền theo vai trò |
 | `/#login` | Đăng nhập demo |
 | `/#signup` | Giao diện đăng ký theo lời mời |

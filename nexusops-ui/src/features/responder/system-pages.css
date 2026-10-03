@@ -1,0 +1,75 @@
+.sys-page { animation:sys-enter .22s ease-out; }
+.sys-intro { display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin:0 0 22px; }
+.sys-intro h2 { margin-top:4px; color:#2c4737; font-family:Outfit,sans-serif; font-size:24px; font-weight:500; letter-spacing:-.45px; }
+.sys-intro p { margin-top:7px; color:#607869; font-size:14px; line-height:1.7; }
+.sys-demo-tag { display:inline-flex; align-items:center; gap:7px; flex:none; padding:8px 11px; border:1px solid #dfe9e1; border-radius:999px; color:#66816d; background:#fff; font-size:12px; }
+.sys-demo-tag.is-connected { border-color:#cfe7d6; background:#eef7f0; color:#28774c; }
+.sys-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.sys-status-card { min-width:0; padding:19px; border:1px solid #e2eae3; border-radius:13px; background:linear-gradient(150deg,#fff,#fbfdfb); box-shadow:0 4px 15px #24472e05; transition:transform .18s ease,box-shadow .18s ease; }
+.sys-status-card:hover { transform:translateY(-2px); box-shadow:0 10px 24px #24472e0d; }
+.sys-status-head,.sys-status-head>span:first-child,.sys-health { display:flex; align-items:center; }
+.sys-status-head { justify-content:space-between; gap:12px; }
+.sys-status-head>span:first-child { min-width:0; gap:8px; color:#385744; font-size:14px; font-weight:600; }
+.sys-status-head>span:first-child svg { flex:none; color:#72927b; }
+.sys-health { gap:6px; color:#68816f; font-size:11px; white-space:nowrap; }
+.sys-health i { width:7px; height:7px; border-radius:50%; background:#7cb88a; box-shadow:0 0 0 3px #7cb88a20; }
+.sys-attention .sys-health { color:#a96152; }
+.sys-attention .sys-health i { background:#dc8978; box-shadow:0 0 0 3px #dc897820; }
+.sys-investigating .sys-health { color:#a18145; }
+.sys-investigating .sys-health i { background:#d0ab60; box-shadow:0 0 0 3px #d0ab6020; }
+.sys-status-summary { display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; margin:24px 0 15px; color:#809187; font-size:12px; }
+.sys-status-summary strong { color:#344f3d; font-family:Outfit,sans-serif; font-size:29px; font-weight:500; line-height:1; }
+.sys-status-summary .sys-divider { width:1px; height:13px; margin:0 3px; background:#e0e8e1; }
+.sys-status-meter { height:5px; overflow:hidden; border-radius:99px; background:#edf2ed; }
+.sys-status-meter i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#77b88c,#a5cfad); transition:width .3s ease; }
+.sys-attention .sys-status-meter i { background:linear-gradient(90deg,#d98270,#edb296); }
+.sys-investigating .sys-status-meter i { background:linear-gradient(90deg,#c5a158,#dfc681); }
+.sys-status-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; color:#86978b; font-size:11px; }
+.sys-status-foot .ws-text-button { flex:none; font-size:12px; }
+.sys-note { display:flex; align-items:flex-start; gap:10px; margin-top:18px; padding:14px 16px; border:1px solid #e5ece6; border-radius:10px; background:#f8fbf8; color:#607769; }
+.sys-note svg { flex:none; margin-top:1px; color:#6d9a78; }
+.sys-note p { font-size:12px; line-height:1.7; }
+.sys-integration-card { padding:22px; }
+.sys-integration-heading { display:flex; align-items:center; gap:14px; padding-bottom:20px; border-bottom:1px solid #edf1ed; }
+.sys-integration-heading>div { flex:1; min-width:0; }
+.sys-integration-icon { display:grid; place-items:center; width:48px; height:48px; flex:none; border:1px solid #d9eadc; border-radius:13px; color:#4e9367; background:linear-gradient(145deg,#f2f8f2,#eaf4ec); }
+.sys-tag { color:#789181; font-size:10px; font-weight:700; letter-spacing:.9px; }
+.sys-integration-heading h3 { margin-top:5px; color:#344f3d; font-family:Outfit,sans-serif; font-size:19px; font-weight:500; }
+.sys-integration-heading p { margin-top:4px; color:#718477; font-size:13px; line-height:1.6; }
+.sys-health.is-healthy { color:#28774c; }
+.sys-health.is-paused { color:#78877d; }
+.sys-health.is-paused i { background:#b8c5ba; box-shadow:0 0 0 3px #b8c5ba20; }
+.sys-integration-form { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(200px,.8fr) auto; align-items:end; gap:14px; padding:20px 0 14px; }
+.sys-integration-form label { display:grid; gap:7px; color:#4b6554; font-size:12px; font-weight:600; }
+.sys-integration-form input,.sys-integration-form select,.sys-period select { width:100%; min-height:40px; padding:8px 11px; border:1px solid #dfe8e0; border-radius:8px; background:#fff; color:#385744; font:inherit; font-size:13px; }
+.sys-integration-form input:focus,.sys-integration-form select:focus,.sys-period select:focus { outline:2px solid #6aae82; outline-offset:1px; }
+.sys-integration-form .ws-button { min-height:40px; white-space:nowrap; }
+.sys-integration-actions { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding-top:14px; border-top:1px solid #edf1ed; }
+.sys-integration-actions>span { margin-left:auto; color:#829287; font-size:11px; }
+.sys-integration-actions .ws-text-button { font-size:13px; }
+.sys-period { display:grid; gap:6px; min-width:170px; color:#617968; font-size:12px; }
+.sys-period select { min-height:37px; }
+.sys-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; margin-bottom:17px; }
+.sys-metrics article { padding:18px 20px; border:1px solid #e2eae3; border-radius:12px; background:#fff; }
+.sys-metrics article>span { display:flex; align-items:center; gap:8px; color:#6b8171; font-size:12px; }
+.sys-metrics article>span svg { color:#79a486; }
+.sys-metrics article>strong { display:block; margin:13px 0 4px; color:#34523e; font-family:Outfit,sans-serif; font-size:30px; font-weight:500; line-height:1; }
+.sys-metrics article>small { color:#89988d; font-size:11px; }
+.sys-analytics-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.sys-chart { padding:19px; }
+.sys-chart>div:first-child { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:19px; }
+.sys-chart h3 { color:#405b48; font-size:14px; font-weight:600; }
+.sys-chart>div:first-child span { color:#89988d; font-size:11px; }
+.sys-bar-row { display:grid; grid-template-columns:minmax(90px,.8fr) minmax(60px,1.4fr) 24px; align-items:center; gap:12px; margin:15px 0; color:#667b6c; font-size:12px; }
+.sys-bar-row>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sys-bar-row>div { height:7px; overflow:hidden; border-radius:99px; background:#edf2ed; }
+.sys-bar-row>div i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#68a97b,#9bcca3); transition:width .25s ease; }
+.sys-bar-row>div i.sys-bar-red { background:linear-gradient(90deg,#d47b6b,#e6ad96); }
+.sys-bar-row>div i.sys-bar-amber { background:linear-gradient(90deg,#c3a154,#dfc783); }
+.sys-bar-row>div i.sys-bar-green { background:linear-gradient(90deg,#68a97b,#9bcca3); }
+.sys-bar-row strong { text-align:right; color:#47614e; font-size:12px; font-weight:600; }
+.sys-chart>p { color:#819286; font-size:12px; }
+@keyframes sys-enter { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+@media(max-width:950px) { .sys-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.sys-integration-form { grid-template-columns:1fr 1fr; }.sys-integration-form .ws-button { grid-column:1/-1; justify-self:start; } }
+@media(max-width:680px) { .sys-intro { align-items:flex-start; flex-direction:column; gap:13px; }.sys-status-grid,.sys-metrics,.sys-analytics-grid { grid-template-columns:1fr; }.sys-integration-card { padding:17px; }.sys-integration-heading { align-items:flex-start; flex-wrap:wrap; }.sys-integration-heading>.sys-health { margin-left:62px; }.sys-integration-form { grid-template-columns:1fr; }.sys-integration-form .ws-button { grid-column:auto; justify-self:stretch; }.sys-period { width:100%; }.sys-bar-row { grid-template-columns:minmax(80px,.8fr) minmax(55px,1.4fr) 20px; gap:8px; }.sys-integration-actions>span { width:100%; margin-left:0; } }
+@media(prefers-reduced-motion:reduce) { .sys-page { animation:none; }.sys-status-card { transition:none; }.sys-status-card:hover { transform:none; } }

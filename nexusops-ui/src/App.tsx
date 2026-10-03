@@ -6,15 +6,16 @@ import { ProductsMenu } from './components/ProductsMenu';
 import { SolutionsMenu } from './components/SolutionsMenu';
 import { ResourcesMenu } from './components/ResourcesMenu';
 import { PricingPage } from './pages/PricingPage';
+import { IncidentManagementPage } from './pages/IncidentManagementPage';
+import { OnCallEscalationPage } from './pages/OnCallEscalationPage';
+import { AIInvestigationAutomationPage } from './pages/AIInvestigationAutomationPage';
 import './motion.css';
+import { LandingStory } from './components/LandingStory';
 import { 
   Search, 
   ArrowRight, 
   X, 
-  Sparkles,
-  Star,
-  Quote,
-  CheckCircle2
+  Sparkles
 } from 'lucide-react';
 
 function LandingPage({ onStart }: { onStart: (email: string) => void }) {
@@ -26,43 +27,6 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
     if (!email) return;
     onStart(email);
   };
-
-  const reviews = [
-    {
-      id: 1,
-      quote: "NexusOps reduced our alert fatigue by over 92% in our first month. The automated correlation pinpointed a database thread pool leak in 3 minutes instead of hours of manual triage.",
-      author: "Alex Morgan",
-      role: "Staff Site Reliability Engineer",
-      company: "Finscale Cloud",
-      rating: 5,
-      highlight: "⚡ 65% faster MTTR",
-      verified: true
-    },
-    {
-      id: 2,
-      quote: "The Human Approval Gate gives our on-call responders superpowers without risking production safety. AI proposes the rollback with full snapshot evidence, and we stay in control.",
-      author: "David Tran",
-      role: "VP of Engineering & Infrastructure",
-      company: "PayFlow Global",
-      rating: 5,
-      highlight: "🛡️ 100% Safe Remediation",
-      verified: true
-    },
-    {
-      id: 3,
-      quote: "Automated Post-Incident Reviews (PIR) save our Incident Commanders 3+ hours after every P1 outage. The timeline and contributing factors are generated accurately from real event streams.",
-      author: "Elena Rostova",
-      role: "Head of DevOps & Platform Ops",
-      company: "DataStream Systems",
-      rating: 5,
-      highlight: "📝 Automated Postmortems",
-      verified: true
-    }
-  ];
-
-  const brandLogos = [
-    "ACME Cloud", "DataPulse", "Nexora Tech", "FinVanguard", "KubeMatrix", "HyperScale"
-  ];
 
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans flex flex-col selection:bg-emerald-100 selection:text-emerald-900 relative overflow-x-hidden">
@@ -228,122 +192,14 @@ function LandingPage({ onStart }: { onStart: (email: string) => void }) {
               href="#demo" 
               className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-emerald-700 pl-3 transition whitespace-nowrap"
             >
-              <span>Watch demo</span>
+              <span>Explore the workspace</span>
               <ArrowRight className="w-3.5 h-3.5 text-emerald-600" />
             </a>
           </form>
         </div>
       </section>
 
-      {/* ========================================================================= */}
-      {/* 4. PHẦN PLACEHOLDER REVIEW (CUSTOMER TESTIMONIALS & TRUST SECTION)        */}
-      {/* ========================================================================= */}
-      <section id="customers" className="scroll-mt-24 bg-slate-50/70 border-t border-slate-200/80 py-24 px-4 sm:px-6 relative overflow-hidden">
-        
-        {/* Subtle decorative glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[350px] bg-emerald-100/40 blur-[130px] rounded-full pointer-events-none"></div>
-
-        <div className="max-w-6xl mx-auto relative z-10 space-y-16">
-          
-          {/* Section Header */}
-          <div className="flex flex-col items-center text-center space-y-4 max-w-2xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-100/60 border border-emerald-200/80 text-emerald-800 text-xs font-semibold shadow-2xs">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Customer Reviews &amp; Social Proof</span>
-            </div>
-
-            <h2 className="font-['Outfit'] text-3xl sm:text-4xl lg:text-[42px] font-semibold text-slate-900 tracking-tight leading-tight">
-              Trusted by high-velocity SRE &amp; engineering teams
-            </h2>
-
-            <p className="text-slate-600 text-sm sm:text-base leading-relaxed">
-              Discover how modern reliability teams use NexusOps to slash alert noise, automate root-cause triage, and protect error budgets.
-            </p>
-
-            {/* Overall Rating Badge */}
-            <div className="flex items-center gap-3 pt-2 text-xs text-slate-600 font-medium">
-              <div className="flex items-center text-amber-500">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-400 stroke-amber-400" />
-                ))}
-              </div>
-              <span className="font-bold text-slate-900 text-sm">4.9 / 5.0</span>
-              <span className="text-slate-400">&bull;</span>
-              <span>Based on 350+ reviews across industry benchmarks</span>
-            </div>
-          </div>
-
-          {/* Grid of 3 Placeholder Review Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
-            {reviews.map((rev) => (
-              <div 
-                key={rev.id}
-                className="bg-white border border-slate-200/80 rounded-3xl p-6 lg:p-7 shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between space-y-6 relative group"
-              >
-                <div className="space-y-4">
-                  {/* Top: Stars & Metric Badge */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-amber-500 gap-0.5">
-                      {[...Array(rev.rating)].map((_, i) => (
-                        <Star key={i} className="w-3.5 h-3.5 fill-amber-400 stroke-amber-400" />
-                      ))}
-                    </div>
-                    <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                      {rev.highlight}
-                    </span>
-                  </div>
-
-                  {/* Quote Body */}
-                  <div className="relative">
-                    <Quote className="w-6 h-6 text-emerald-600/15 absolute -top-2 -left-1" />
-                    <p className="text-slate-700 text-xs sm:text-[13px] leading-relaxed relative z-10 pt-2 font-normal">
-                      &ldquo;{rev.quote}&rdquo;
-                    </p>
-                  </div>
-                </div>
-
-                {/* Author Info */}
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                  <div>
-                    <div className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-1.5">
-                      <span>{rev.author}</span>
-                      {rev.verified && (
-                        <span title="Verified Reviewer">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-500">{rev.role}</div>
-                    <div className="text-[11px] font-semibold text-emerald-700">{rev.company}</div>
-                  </div>
-
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                    {rev.author.split(' ').map(n => n[0]).join('')}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Trusted Brand Logotypes Placeholder Bar */}
-          <div className="pt-4 flex flex-col items-center space-y-4">
-            <span className="text-xs uppercase tracking-widest font-semibold text-slate-400">
-              Integrates seamlessly with modern observability &amp; infrastructure
-            </span>
-            <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-12 opacity-65">
-              {brandLogos.map((brand, idx) => (
-                <div 
-                  key={idx} 
-                  className="font-['Outfit'] font-bold text-slate-500 text-sm tracking-wider uppercase hover:text-slate-800 transition cursor-default"
-                >
-                  {brand}
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      </section>
+      <LandingStory />
 
     </div>
   );
@@ -363,8 +219,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (hash === '#customers') {
-      requestAnimationFrame(() => document.getElementById('customers')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    if (hash === '#customers' || hash === '#demo') {
+      requestAnimationFrame(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }));
       return;
     }
     window.scrollTo(0, 0);
@@ -372,13 +228,16 @@ export function App() {
 
   const workspace = hash === '#workspace';
   const pricing = hash === '#pricing';
+  const incidentManagement = hash === '#product-incident-management';
+  const onCallEscalation = hash === '#product-on-call-escalation';
+  const aiAutomation = hash === '#product-ai-automation';
   const mode = hash === '#login' || (workspace && !authenticated) ? 'login' : hash === '#signup' ? 'signup' : null;
 
   useEffect(() => {
-    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
-  }, [mode, workspace, authenticated, pricing]);
+    document.title = workspace && authenticated ? 'Responder workspace · NexusOps' : incidentManagement ? 'Incident Management · NexusOps' : onCallEscalation ? 'On-call & Escalation · NexusOps' : aiAutomation ? 'AI Investigation & Automation · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
+  }, [mode, workspace, authenticated, pricing, incidentManagement, onCallEscalation, aiAutomation]);
 
-  return <div key={mode ?? (workspace ? 'workspace' : pricing ? 'pricing' : 'home')} className="page-transition">{pricing ? <PricingPage /> : workspace && authenticated ? <ResponderDashboard onLogout={() => {
+  return <div key={mode ?? (workspace ? 'workspace' : pricing ? 'pricing' : incidentManagement ? 'product-incident-management' : onCallEscalation ? 'product-on-call-escalation' : aiAutomation ? 'product-ai-automation' : 'home')} className="page-transition">{incidentManagement ? <IncidentManagementPage /> : onCallEscalation ? <OnCallEscalationPage /> : aiAutomation ? <AIInvestigationAutomationPage /> : pricing ? <PricingPage /> : workspace && authenticated ? <ResponderDashboard onLogout={() => {
     setDemoSession(false);
     setAuthenticated(false);
     window.location.hash = 'login';

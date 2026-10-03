@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Layers, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import type { Profile } from './workspace-types';
 import { addDays, fromWall, scheduleServices, scheduleZones, validateShift, wallDate, wallTime, weekStart } from './schedule';
-import type { ScheduleZone, Shift } from './schedule';
+import type { ScheduleInfo, ScheduleZone, Shift } from './schedule';
 import './schedule.css';
+import { RotationBuilder } from './RotationBuilder';
 
 const dayLabel = (date: string, options: Intl.DateTimeFormatOptions) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { ...options, timeZone: 'UTC' });
-export function SchedulePage({ profile, shifts, onShifts, onBack, now }: { profile: Profile; shifts: Shift[]; onShifts: (shifts: Shift[]) => void; onBack: () => void; now: number }) {
-  const [zone, setZone] = useState<ScheduleZone>('Asia/Ho_Chi_Minh');
-  const [week, setWeek] = useState(() => weekStart(wallDate(now, 'Asia/Ho_Chi_Minh')));
+export function SchedulePage({ info, onInfo, profile, shifts, onShifts, onBack, now }: { info: ScheduleInfo; onInfo: (info: ScheduleInfo) => void; profile: Profile; shifts: Shift[]; onShifts: (shifts: Shift[]) => void; onBack: () => void; now: number }) {
+  const [zone, setZone] = useState<ScheduleZone>(info.zone);
+  const [week, setWeek] = useState(() => weekStart(wallDate(now, info.zone)));
   const [service, setService] = useState('payments-api');
   const [layer, setLayer] = useState('all');
   const [editing, setEditing] = useState<Shift | null>(null);
@@ -25,8 +26,10 @@ export function SchedulePage({ profile, shifts, onShifts, onBack, now }: { profi
   return <div className="sc-page">
     <button className="ws-text-button" onClick={onBack}><ArrowLeft size={15} />Back to onboarding</button>
     <section className="sc-hero"><div><span className="sc-eyebrow"><Sparkles size={14} /> A LITTLE CLARITY, EVERY SHIFT</span><h2>Good coverage.<br /><em>Calmer handovers.</em></h2><p>Give every service a clear window of care.<br />Plan your team's on-call hours in one shared view.</p><button className="sc-create" onClick={() => create()}><Plus size={17} />Create a shift</button></div><div className="sc-art" aria-hidden="true"><div className="sc-art-shadow" /><div className="sc-art-card sc-art-back" /><div className="sc-art-card sc-art-front"><span>NEXUSOPS / ON CALL</span><CalendarDays size={30} /><strong>Your next shift,<br />beautifully in view.</strong><div className="sc-art-bars"><i /><i /><i /><i /><i /></div><small><span /> Clarity across every timezone</small></div><span className="sc-art-badge"><Check size={17} />Ready for handover</span></div></section>
-    <div className="sc-summary"><div><CalendarDays size={18} /><span><strong>{weekShifts.length}</strong> shifts this week</span></div><div><Clock3 size={18} /><span><strong>{primaryHours.toFixed(1)} / 168 h</strong> primary coverage in this view</span></div><div><Layers size={18} /><span><strong>One-off shifts</strong> · no automatic rotation</span></div></div>
+    <div className="sc-summary"><div><CalendarDays size={18} /><span><strong>{weekShifts.length}</strong> shifts this week</span></div><div><Clock3 size={18} /><span><strong>{primaryHours.toFixed(1)} / 168 h</strong> primary coverage in this view</span></div><div><Layers size={18} /><span><strong>Manual + generated shifts</strong> · finite coverage</span></div></div>
     <p className="sc-demo">Schedule planning preview · This shared draft is local to the demo. Saving a shift does not change live paging, existing assignments or escalation policies.</p>
+    <RotationBuilder info={info} onInfo={onInfo} members={members} shifts={shifts} onApply={(generated, rotationZone) => { onShifts([...shifts, ...generated]); setZone(rotationZone); setService(generated[0].service); setLayer('all'); setWeek(weekStart(wallDate(generated[0].start, rotationZone))); setMessage(`${generated.length} rotation shifts added to the schedule.`); }} />
+    <h3 className="sc-schedule-name">{info.name}</h3>
     <section className="sc-calendar" aria-label="Weekly on-call schedule">
       <div className="sc-toolbar"><div className="sc-week-nav"><button aria-label="Previous week" onClick={() => setWeek(addDays(week, -7))}><ChevronLeft size={19} /></button><h3>{dayLabel(week, { day: 'numeric', month: 'short' })} – {dayLabel(days[6], { day: 'numeric', month: 'short', year: 'numeric' })}</h3><button aria-label="Next week" onClick={() => setWeek(addDays(week, 7))}><ChevronRight size={19} /></button><button onClick={() => setWeek(weekStart(wallDate(now, zone)))}>Today</button></div><button className="ws-button" onClick={() => create()}><Plus size={15} />New shift</button></div>
       <div className="sc-filters"><label>Service<select value={service} onChange={event => setService(event.target.value)}>{scheduleServices.map(value => <option key={value}>{value}</option>)}</select></label><label>Coverage<select value={layer} onChange={event => setLayer(event.target.value)}><option value="all">All layers</option><option>Primary</option><option>Secondary</option></select></label><label>Display timezone<select value={zone} onChange={event => setZone(event.target.value as ScheduleZone)}>{Object.keys(scheduleZones).map(value => <option key={value}>{value}</option>)}</select></label><span className="sc-legend"><i />Primary <i />Secondary</span></div>
