@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { AuthPage } from './pages/AuthPage';
 import { Workspace } from './features/access/Workspace';
 import { currentUser, useData, logout } from './features/access/store';
@@ -12,6 +12,9 @@ import { AIInvestigationAutomationPage } from './pages/AIInvestigationAutomation
 import { PostIncidentInsightsPage } from './pages/PostIncidentInsightsPage';
 import { PlatformCapabilityPage, type PlatformCapabilityKey } from './pages/PlatformCapabilityPage';
 import { CustomerPage } from './pages/CustomerPage';
+import { SolutionPage } from './pages/SolutionPage';
+import { solutionPageTitles, type SolutionKey } from './pages/solution-definitions';
+import { resourceDirectory } from './pages/resource-directory';
 import './motion.css';
 import { LandingStory } from './components/LandingStory';
 import {
@@ -20,6 +23,8 @@ import {
   X, 
   Sparkles
 } from 'lucide-react';
+
+const ResourcePage = lazy(() => import('./pages/ResourcePage').then(module => ({ default: module.ResourcePage })));
 
 const platformCapabilityTitles: Record<PlatformCapabilityKey, string> = {
   'service-catalog': 'Service Catalog',
@@ -240,19 +245,21 @@ export function App() {
 
   const workspace = hash === '#workspace' || hash.startsWith('#workspace/');
   const pricing = hash === '#pricing';
+  const resourceArticle = resourceDirectory.find(article => hash === `#resource-${article.key}`);
   const customerPage = hash === '#customers';
   const incidentManagement = hash === '#product-incident-management';
   const onCallEscalation = hash === '#product-on-call-escalation';
   const aiAutomation = hash === '#product-ai-automation';
   const postIncidentInsights = hash === '#product-post-incident-insights';
+  const solutionKey = (Object.keys(solutionPageTitles) as SolutionKey[]).find(key => hash === `#solution-${key}`);
   const platformCapability = platformCapabilityKeys.find(key => hash === `#platform-${key}`);
   const mode = hash === '#login' || (workspace && !authenticated) ? 'login' : hash === '#signup' ? 'signup' : null;
 
   useEffect(() => {
-    document.title = workspace && authenticated ? 'Workspace · NexusOps' : incidentManagement ? 'Incident Management · NexusOps' : onCallEscalation ? 'On-call & Escalation · NexusOps' : aiAutomation ? 'AI Investigation & Automation · NexusOps' : postIncidentInsights ? 'Post-Incident Review & Insights · NexusOps' : platformCapability ? `${platformCapabilityTitles[platformCapability]} · NexusOps` : customerPage ? 'Customer · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
-  }, [mode, workspace, authenticated, pricing, customerPage, incidentManagement, onCallEscalation, aiAutomation, postIncidentInsights, platformCapability]);
+    document.title = resourceArticle ? `${resourceArticle.title} · Resources · NexusOps` : workspace && authenticated ? 'Workspace · NexusOps' : incidentManagement ? 'Incident Management · NexusOps' : onCallEscalation ? 'On-call & Escalation · NexusOps' : aiAutomation ? 'AI Investigation & Automation · NexusOps' : postIncidentInsights ? 'Post-Incident Review & Insights · NexusOps' : solutionKey ? `${solutionPageTitles[solutionKey]} · Solutions · NexusOps` : platformCapability ? `${platformCapabilityTitles[platformCapability]} · NexusOps` : customerPage ? 'Customer · NexusOps' : pricing ? 'Pricing · NexusOps' : mode ? `${mode === 'login' ? 'Log in' : 'Sign up'} · NexusOps` : 'NexusOps · Incident & Reliability Operations';
+  }, [mode, workspace, authenticated, pricing, customerPage, incidentManagement, onCallEscalation, aiAutomation, postIncidentInsights, solutionKey, platformCapability, resourceArticle]);
 
-  return <div key={mode ?? (workspace ? 'workspace' : customerPage ? 'customers' : pricing ? 'pricing' : incidentManagement ? 'product-incident-management' : onCallEscalation ? 'product-on-call-escalation' : aiAutomation ? 'product-ai-automation' : postIncidentInsights ? 'product-post-incident-insights' : platformCapability ? `platform-${platformCapability}` : 'home')} className="page-transition">{incidentManagement ? <IncidentManagementPage /> : onCallEscalation ? <OnCallEscalationPage /> : aiAutomation ? <AIInvestigationAutomationPage /> : postIncidentInsights ? <PostIncidentInsightsPage /> : platformCapability ? <PlatformCapabilityPage capability={platformCapability} /> : customerPage ? <CustomerPage /> : pricing ? <PricingPage /> : workspace && authenticated ? <Workspace onLogout={() => {
+  return <div key={mode ?? (resourceArticle ? `resource-${resourceArticle.key}` : workspace ? 'workspace' : customerPage ? 'customers' : pricing ? 'pricing' : incidentManagement ? 'product-incident-management' : onCallEscalation ? 'product-on-call-escalation' : aiAutomation ? 'product-ai-automation' : postIncidentInsights ? 'product-post-incident-insights' : solutionKey ? `solution-${solutionKey}` : platformCapability ? `platform-${platformCapability}` : 'home')} className="page-transition">{resourceArticle ? <Suspense fallback={<main role="status" style={{ padding: 48, color: '#286548' }}>Opening NexusOps documentation…</main>}><ResourcePage articleKey={resourceArticle.key}/></Suspense> : incidentManagement ? <IncidentManagementPage /> : onCallEscalation ? <OnCallEscalationPage /> : aiAutomation ? <AIInvestigationAutomationPage /> : postIncidentInsights ? <PostIncidentInsightsPage /> : solutionKey ? <SolutionPage solution={solutionKey} /> : platformCapability ? <PlatformCapabilityPage capability={platformCapability} /> : customerPage ? <CustomerPage /> : pricing ? <PricingPage /> : workspace && authenticated ? <Workspace onLogout={() => {
     logout();
     window.location.hash = 'login';
   }} /> : mode ? <AuthPage mode={mode} initialEmail={initialEmail} onDemoLogin={() => {

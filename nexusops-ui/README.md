@@ -1,6 +1,6 @@
 # NexusOps UI
 
-Frontend React + TypeScript + Vite cho landing page và workspace đa vai trò NexusOps. **Cập nhật 03/10/2026.** Xem [README dự án](../README.md) để đọc tổng quan, ma trận quyền, ý nghĩa từng màn, luồng invitation và giới hạn MVP.
+Frontend React + TypeScript + Vite cho landing page, các trang public Product/Platform/Solution/Customer và workspace đa vai trò NexusOps. **Cập nhật 04/10/2026.** Xem [README dự án](../README.md) để đọc tổng quan, ma trận quyền, ý nghĩa từng màn, luồng invitation và giới hạn MVP.
 
 ## Chạy ứng dụng
 
@@ -27,8 +27,13 @@ Mật khẩu khởi tạo chung: `NexusOps@2026`. Tại Login chọn **Demo acco
 
 | Đường dẫn | Nội dung |
 |---|---|
-| `/` | Landing page, dropdown Products và Solutions |
+| `/` | Landing page, dropdown Products, Solutions và Resources |
+| `/#resource-{key}` | 12 trang Documentation/Guides/Resources; key lấy từ `resource-directory.ts`, xem bảng đầy đủ trong README gốc |
 | `/#customers` | Trang Customer riêng; nhóm người dùng và hành trình MVP minh họa, không có testimonial giả |
+| `/#solution-reduce-alert-noise` | Trang Solution Reduce Alert Noise; minh họa dedup/grouping xác định trong cùng service theo rule/window |
+| `/#solution-coordinate-incident-response` | Trang Solution Coordinate Incident Response; minh họa ownership, ACK, escalation hữu hạn và timeline |
+| `/#solution-investigate-with-confidence` | Trang Solution Investigate & Act with Confidence; minh họa evidence, giả thuyết, approval và sandbox boundary |
+| `/#solution-improve-after-every-incident` | Trang Solution Improve After Every Incident; minh họa PIR review, follow-up và MTTA/MTTR kèm sample count |
 | `/#product-incident-management` | Trang công khai Incident Management, giải thích luồng alert đến resolve theo MVP |
 | `/#product-on-call-escalation` | Trang công khai On-call & Escalation, giải thích coverage và policy hai level có backstop |
 | `/#product-ai-automation` | Trang công khai AI Investigation & Automation; giải thích evidence, giả thuyết, action snapshot, human approval và sandbox theo MVP |
@@ -79,8 +84,14 @@ AI mẫu mở trong chi tiết incident; không có route AI riêng. Workspace d
 | `src/features/responder/IncidentDetails.tsx` | Drawer incident được workspace mới tái sử dụng |
 | `src/features/responder/model.ts`, `escalation.ts`, `schedule.ts` | Fixture và helper được tái sử dụng |
 | `src/components/*Menu.tsx` | Products, Solutions, Resources |
+| `src/pages/resource-directory.ts` | Metadata dùng chung cho menu, sidebar và nhận diện 12 route Resources |
+| `src/pages/resource-content.ts` | Nội dung tài liệu, guides, glossary và FAQ theo MVP/README/workspace |
+| `src/pages/ResourcePage.tsx`, `resource-page.css` | Docs layout tải lười, tìm kiếm bài viết/thuật ngữ, copy JSON, mục lục, FAQ và responsive |
 | `src/components/LandingStory.tsx` | Phần scroll giới thiệu có minh họa thay review khách hàng |
 | `src/pages/*Page.tsx` | Pricing, bốn Product và PlatformCapabilityPage cho bốn năng lực Platform |
+| `src/pages/SolutionPage.tsx` | Bốn trang public Solution, luồng MVP, custom previews và liên kết Product/Platform |
+| `src/pages/solution-definitions.ts` | Nguồn dữ liệu dùng chung cho nội dung dropdown, bốn trang, route và các giới hạn MVP của Solutions |
+| `src/pages/solution-page.css` | Minh họa signal/response/evidence/PIR bằng CSS và responsive styling cho Solutions |
 
 `ResponderDashboard.tsx`, `SchedulePage.tsx`, `RotationBuilder.tsx`, `EscalationPage.tsx`, các màn workspace cũ và `src/demo/auth.ts` vẫn còn trong source, nhưng không phải entry point workspace/auth hiện tại. Không sửa các màn cũ rồi kỳ vọng App tự hiển thị chúng. Rotation builder, mô phỏng No ACK/Simulate ACK, Reset sample data và Unread only của phiên bản cũ không có trên workspace mới.
 
@@ -99,4 +110,8 @@ AI mẫu mở trong chi tiết incident; không có route AI riêng. Workspace d
 
 ## Trạng thái kiểm tra
 
-Lần hiện thực workspace gần nhất đã chạy build, lint và 12 kiểm tra logic quyền thành công. Chưa xác nhận trực quan toàn bộ giao diện vì công cụ trình duyệt lỗi khởi động. Lần cập nhật README này chỉ thay tài liệu, không chạy lại test ứng dụng.
+Kiểm tra build/lint và 12 kiểm tra logic quyền thuộc lần hiện thực workspace trước. Resources có bộ kiểm tra Chrome headless riêng; xem kết quả và phạm vi tại mục dưới đây và trong README gốc. Các kết quả này không thay thế kiểm thử backend hoặc kiểm thử phân quyền phía server.
+
+## Kiểm tra Resources
+
+`node scripts/check-resources.mjs` dùng Chrome/Chromium headless đã cài, hồ sơ tạm riêng. Chạy Vite ở `http://127.0.0.1:5175` trước, hoặc đặt `RESOURCE_BASE_URL`; đặt `BROWSER_PATH` nếu trình duyệt nằm ngoài vị trí thông thường. Script kiểm tra 12 route tại 1440/768/390 px, tiêu đề/sidebar, link Resources, tràn ngang, glossary/search/FAQ, mẫu báo lỗi Help & Support và menu. Ảnh chụp và kết quả JSON được lưu trong thư mục tạm có đường dẫn in ở cuối. Không thay đổi dữ liệu workspace.

@@ -17,5 +17,8 @@
 .resource-item summary>span { flex:1; }
 .resource-item summary small { margin-left:6px; padding:3px 5px; border-radius:5px; border:1px solid #dce5d9; color:#697c69; font-size:9px; font-weight:500; }
 .resource-item>p { padding:0 13px 12px 38px; color:#5f7668; font-size:12px; line-height:1.7; }
+.resource-open-link { display:inline-flex; align-items:center; gap:7px; margin:0 13px 14px 38px; color:#16774f; font-size:12px; font-weight:650; text-decoration:none; }
+.resource-open-link:hover { text-decoration:underline; text-underline-offset:4px; }
+.resource-open-link:focus-visible { outline:2px solid #198458; outline-offset:4px; border-radius:4px; }
 @media(max-width:639px) { .resources-columns { grid-template-columns:1fr; gap:5px; }.resources-section { padding:12px 4px; }.resources-section + .resources-section { border-left:0; border-top:1px solid #e2ebe5; }.directory-panel .products-eyebrow { font-size:10px; letter-spacing:1px; }.resources-section h2 { margin-bottom:5px; } }
 @media(prefers-reduced-motion:reduce) { .resource-item,.directory-chevron { transition:none; } }
