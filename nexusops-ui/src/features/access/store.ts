@@ -179,7 +179,7 @@ export function reduceCommand(source: Data, actorId: string, command: Command, n
       if (!data.reviews.some(r => r.incidentId === i.id)) data.reviews.push({ incidentId: i.id, status: 'DRAFT', summary: `Resolution: ${command.text.trim()}`, followup: '', ownerId: actor.id, completed: false });
     }
     if (command.operation === 'note' && !command.text?.trim()) throw new Error('A note cannot be empty.');
-    if (command.operation === 'investigate') i.investigation = `Sample investigation: ${i.alerts.length} linked alert(s) on ${i.service}. Evidence: ${i.alerts.map(a => a.id).join(', ')}. Hypothesis: a recent deployment may be related; causality is unconfirmed. Check deployment and service metrics before acting. No model was called.`;
+    if (command.operation === 'investigate') i.investigation = `Sample investigation: ${i.alerts.length} linked alert(s) on ${i.service}. Evidence: ${i.alerts.map(a => a.id).join(', ')}. Root cause is not established. Deployment records and service metrics are missing; collect and verify them before acting. No model was called.`;
     if (command.operation === 'propose') { if (data.actions.some(a => a.incidentId === i.id && ['APPROVED', 'PENDING_APPROVAL'].includes(a.state))) throw new Error('An action is already pending for this incident.'); data.actions.unshift({ id: crypto.randomUUID(), incidentId: i.id, state: 'PENDING_APPROVAL', requestedBy: actor.id }); }
     timeline(i, `${actor.name}: ${command.operation}${command.text ? ` — ${command.text.trim()}` : ''}`); log(data, actor.name, `INCIDENT_${command.operation.toUpperCase()}`, `INC-${i.id}`);
   } else if (command.type === 'action') {

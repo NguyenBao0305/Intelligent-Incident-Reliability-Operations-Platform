@@ -5,6 +5,7 @@ import type { Incident } from './model';
 import { statusLabels } from './model';
 
 interface Props {
+  sidePanel?: ReactNode;
   children?: ReactNode;
   currentUserId?: string;
   incident: Incident;
@@ -16,7 +17,7 @@ interface Props {
 }
 const timestamp = (at: number) => new Date(at).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-export function IncidentDetails({ incident, canManage, onClose, onAcknowledge, onResolve, onNote, children, currentUserId }: Props) {
+export function IncidentDetails({ incident, canManage, onClose, onAcknowledge, onResolve, onNote, children, currentUserId, sidePanel }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
@@ -24,11 +25,11 @@ export function IncidentDetails({ incident, canManage, onClose, onAcknowledge, o
   const [reasonError, setReasonError] = useState('');
   useEffect(() => { if (!dialog.current?.open) dialog.current?.showModal(); }, []);
 
-  return <dialog ref={dialog} className="ws-drawer" aria-labelledby="incident-detail-title" onClose={onClose}
+  return <dialog ref={dialog} className={`ws-drawer ${sidePanel ? 'ws-drawer-with-ai' : ''}`} aria-labelledby="incident-detail-title" onClose={onClose}
     onClick={event => { if (event.target === event.currentTarget) dialog.current?.close(); }}>
     <div className="ws-drawer-surface">
       <div className="ws-drawer-top"><span><Activity size={16} /> INCIDENT #{incident.id}</span><button className="ws-icon-button" onClick={() => dialog.current?.close()} aria-label="Close incident details"><X size={20} /></button></div>
-      <div className="ws-drawer-content">
+      <div className="ai-incident-layout"><div className="ws-drawer-content">
         <div className="ws-badges"><span className={`ws-status ws-status-${incident.status.toLowerCase()}`}>{statusLabels[incident.status]}</span><span className={`ws-priority ws-${incident.priority.toLowerCase()}`}>{incident.priority}</span><span className="ws-muted">Demo incident</span></div>
         <h2 id="incident-detail-title">{incident.title}</h2>
         <div className="ws-detail-meta"><span><Server size={15} />{incident.service}</span><span><span className="ws-avatar ws-avatar-small">{incident.assignedName.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>{incident.assignedName}{currentUserId === incident.assignedTo ? ' · You' : ''}</span></div>
@@ -68,7 +69,7 @@ export function IncidentDetails({ incident, canManage, onClose, onAcknowledge, o
         </section>
         {children}
         <p className="ws-detail-footnote"><ShieldCheck size={16} /> Demo changes are local. AI investigation, automation and backend processing are not connected.</p>
-      </div>
+      </div>{sidePanel}</div>
     </div>
   </dialog>;
 }

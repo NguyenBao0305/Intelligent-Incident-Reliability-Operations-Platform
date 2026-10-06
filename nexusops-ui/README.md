@@ -115,3 +115,12 @@ Kiểm tra build/lint và 12 kiểm tra logic quyền thuộc lần hiện thự
 ## Kiểm tra Resources
 
 `node scripts/check-resources.mjs` dùng Chrome/Chromium headless đã cài, hồ sơ tạm riêng. Chạy Vite ở `http://127.0.0.1:5175` trước, hoặc đặt `RESOURCE_BASE_URL`; đặt `BROWSER_PATH` nếu trình duyệt nằm ngoài vị trí thông thường. Script kiểm tra 12 route tại 1440/768/390 px, tiêu đề/sidebar, link Resources, tràn ngang, glossary/search/FAQ, mẫu báo lỗi Help & Support và menu. Ảnh chụp và kết quả JSON được lưu trong thư mục tạm có đường dẫn in ở cuối. Không thay đổi dữ liệu workspace.
+
+### AI Investigation panel trong incident workspace
+
+Mở một incident từ Incidents để xem chi tiết và AI panel bên phải; trên màn hình nhỏ, panel nằm dưới nội dung incident. Hai tab Investigation / Actions tách phần tìm hiểu bằng chứng và phần duyệt hành động.
+
+- Investigation hiển thị alert có ID, nguồn và trạng thái, thời điểm tạo báo cáo mẫu, dữ liệu còn thiếu và các bước kiểm tra thủ công. Không khẳng định nguyên nhân khi chưa có bằng chứng. Related incidents lấy incident cùng service trong team hiện tại, không phải AI similarity search.
+- Người có quyền đọc incident có thể đọc panel. Generate/Refresh sample investigation cần AI_RUN, được phân công responder hoặc commander và incident chưa resolved. Team Manager/Viewer không được tự chạy AI chỉ vì có quyền đọc kết quả.
+- Actions dùng runbook mẫu Inspect service health. Người có AUTOMATION_EXECUTE và được phân công có thể đề xuất, xem target/phạm vi sandbox, xác nhận đã đọc, approve hoặc reject, sau đó chạy mô phỏng. Kiểm tra quyền và trạng thái vẫn thực hiện tại command handler; tối đa hai mô phỏng/service/15 phút. Resolve hủy action đang chờ hoặc đã approved.
+- Các kết quả hiện được lưu cục bộ theo demo store. Không gọi model, không chạy command bên ngoài, không có bằng chứng deployment/RAG thật. Checkbox review là xác nhận giao diện; chưa thay thế snapshot hash, kiểm soát đồng thời, worker và enforcement backend M5/M6. Chưa mô phỏng job async, timeout hay executor UNKNOWN; không hiển thị giả rằng các chức năng backend này đã hoạt động.
